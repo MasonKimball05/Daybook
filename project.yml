@@ -25,12 +25,19 @@ targets:
       - target: DaybookWidget
     # XcodeGen writes this plist from the properties below on every generate,
     # so changes belong here, not in the plist itself.
+    # HealthKit, read-only, for sleep.
+    entitlements:
+      path: Resources/Daybook-iOS.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.access: []
     info:
       path: Resources/Info-iOS.plist
       properties:
         NSCalendarsFullAccessUsageDescription: Daybook shows all your calendars in one place.
         NSRemindersFullAccessUsageDescription: Daybook keeps your tasks and done marks in Reminders so they sync with your Mac.
         UILaunchScreen: {}
+        NSHealthShareUsageDescription: Daybook reads your sleep from Health, so the weekly recap counts free time from when you woke to when you went to sleep.
         NSLocationWhenInUseUsageDescription: Daybook works out travel time to events with a place, so it can tell you when to leave.
         # Lets iOS wake Daybook now and then to look for the morning brief.
         UIBackgroundModes: [fetch]

@@ -28,6 +28,19 @@
 	<string>Daybook keeps your tasks in Reminders, so they sync to your iPhone.</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Daybook reads unread inbox messages from Apple Mail so your morning brief can tell you what's important.</string>
+	<!-- daybook:// links: hop (and anything else) can add tasks, events and
+	     logged time, check tasks off, and open a view. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.masonkimball.Daybook</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>daybook</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSHumanReadableCopyright</key>
 	<string>© 2026 Mason Kimball</string>
 </dict>

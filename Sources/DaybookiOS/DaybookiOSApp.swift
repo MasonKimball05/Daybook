@@ -47,6 +47,9 @@ struct DaybookiOSApp: App {
                                     .toolbar { newEventButton }
                             }
                         }
+                        Tab("Time", systemImage: "chart.bar") {
+                            NavigationStack { TimeView(store: store).toolbar(.hidden, for: .navigationBar) }
+                        }
                         Tab("Search", systemImage: "magnifyingglass", role: .search) {
                             NavigationStack {
                                 SearchResultsView(store: store, query: query)
@@ -106,6 +109,7 @@ struct DaybookiOSApp: App {
                 await store.checkAccess()
                 showNewBrief()
                 await BriefNotifier.requestPermission()
+                await SleepReader.refresh(store)
                 await BriefNotifier.scheduleBackups()
             }
             // Coming back to the app: pick up anything changed on the Mac.
@@ -114,6 +118,7 @@ struct DaybookiOSApp: App {
                     Task {
                         await store.reload()
                         showNewBrief()
+                        await SleepReader.refresh(store)
                     }
                 } else if phase == .background {
                     BriefNotifier.scheduleRefresh()

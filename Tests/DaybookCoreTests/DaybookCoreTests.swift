@@ -475,3 +475,314 @@ func event(_ title: String, _ start: Date, _ end: Date, allDay: Bool = false, ca
         #expect(Countdown.label(until: at(10, 6, 20), now: now, calendar: cal) == "Today")
     }
 }
+
+@Suite struct FollowUpTests {
+    let mine: Set<String> = ["mason@example.edu", "mason@example.com"]
+
+    func sent(_ subject: String, to: String, name: String = "", _ date: Date, opening: String = "Hello") -> FollowUps.Sent {
+        .init(account: "Samford", subject: subject, recipients: [to], names: [name], date: date, opening: opening)
+    }
+
+    @Test func subjects() {
+        #expect(FollowUps.normalize("Re: FWD: RE[2]: Interview times") == "interview times")
+        #expect(FollowUps.isAutomated("noreply@github.com"))
+        #expect(FollowUps.isAutomated("no-reply+abc@accounts.google.com"))
+        #expect(!FollowUps.isAutomated("smith@example.edu"))
+        #expect(FollowUps.ownText("Sounds good, thanks!\n\nOn Oct 2, 2026, Dr. Smith wrote:\n> Can you send it?") == "Sounds good, thanks!")
+    }
+
+    @Test func findsQuietConversationsWorthChasing() {
+        let sentMail = [
+            // Started by him, no answer: waiting.
+            sent("Research position", to: "smith@example.edu", name: "Dr. Smith", at(10, 1, 10)),
+            // Answered after his message: not waiting.
+            sent("Lab meeting", to: "lee@example.edu", at(10, 1, 9)),
+            // His reply that asks nothing: not waiting.
+            sent("Re: Your application", to: "hr@company.com", at(9, 30, 9), opening: "Thank you!\n\nOn Sep 29 HR wrote:\n> Any questions?"),
+            // His reply with a question: waiting.
+            sent("Re: Offer details", to: "recruiter@company.com", name: "Jordan", at(10, 2, 9), opening: "When would I hear back?"),
+            // Too recent (sent yesterday).
+            sent("Coffee chat", to: "alum@company.com", at(10, 5, 9)),
+            // Only to an automated address.
+            sent("Support ticket", to: "support@service.com", at(9, 28, 9)),
+            // Older than three weeks.
+            sent("Old thread", to: "old@example.edu", at(9, 1, 9)),
+        ]
+        let receivedMail = [
+            FollowUps.Received(from: "lee@example.edu", subject: "RE: Lab meeting", date: at(10, 2, 9)),
+            FollowUps.Received(from: "smith@example.edu", subject: "Research position", date: at(9, 30, 9)), // before his
+        ]
+        let waiting = FollowUps.waiting(sent: sentMail, received: receivedMail, mine: mine, now: now, calendar: cal)
+        #expect(waiting.map(\.subject) == ["Research position", "Re: Offer details"])
+        #expect(waiting.map(\.to) == [["Dr. Smith"], ["Jordan"]])
+        #expect(waiting.map(\.days) == [5, 4])
+        let dismissed = FollowUps.waiting(sent: sentMail, received: receivedMail, mine: mine, now: now,
+                                          dismissed: [waiting[0].id], calendar: cal)
+        #expect(dismissed.map(\.subject) == ["Re: Offer details"])
+    }
+
+    @Test func parsesMailsAnswer() {
+        let fs = "\u{1F}", rs = "\u{1E}"
+        let raw = "E\(fs)Samford\(fs)mason@example.edu;\(rs)"
+            + "S\(fs)Samford\(fs)Research position\(fs)smith@example.edu;lab@example.edu;\(fs)Dr. Smith;;\(fs)2026-10-01T10:00:00\(fs)Hello?\(rs)"
+            + "R\(fs)Smith@Example.edu\(fs)Re: Research position\(fs)2026-10-03T08:00:00\(rs)"
+        let parsed = FollowUps.parse(raw, timeZone: chicago)
+        #expect(parsed.mine == ["mason@example.edu"])
+        #expect(parsed.sent.first?.recipients == ["smith@example.edu", "lab@example.edu"])
+        #expect(parsed.sent.first?.names == ["Dr. Smith", ""])
+        #expect(parsed.received.first?.from == "smith@example.edu")
+        #expect(FollowUps.waiting(sent: parsed.sent, received: parsed.received, mine: parsed.mine, now: now, calendar: cal).isEmpty)
+    }
+}
+
+@Suite struct CanvasTests {
+    func feedItem(_ number: Int, _ title: String, _ due: Date) -> AgendaItem {
+        AgendaItem(id: "event-assignment-\(number)@\(Int(due.timeIntervalSince1970))", title: title, start: due,
+                   end: due.addingTimeInterval(86_400), isAllDay: true, calendar: "Canvas")
+    }
+
+    @Test func readsTheFeedsTitles() {
+        let a = Canvas.assignment(feedItem(42, "Lab 4 - MNIST digits [COSC490.01]", at(10, 9)))
+        #expect(a?.id == "42")
+        #expect(a?.title == "Lab 4 - MNIST digits")
+        #expect(a?.course == "COSC 490")
+        #expect(a?.taskTitle == "COSC 490: Lab 4 - MNIST digits")
+        #expect(Canvas.assignment(event("Lecture", at(10, 9, 10), at(10, 9, 11))) == nil)
+        #expect(DaybookMarker(url: nil, notes: DaybookMarker.canvas(assignment: "42").url.absoluteString) == .canvas(assignment: "42"))
+    }
+
+    @Test func createsUpdatesAndLeavesAlone() {
+        let new = Canvas.assignment(feedItem(1, "Essay [ENGL201.02]", at(10, 9)))!
+        let moved = Canvas.assignment(feedItem(2, "Quiz 3 [COSC470.01]", at(10, 12)))!
+        let finished = Canvas.assignment(feedItem(3, "Lab 2 [COSC490.01]", at(10, 8)))!
+        let past = Canvas.assignment(feedItem(4, "Lab 1 [COSC490.01]", at(9, 20)))!
+        let same = Canvas.assignment(feedItem(5, "Reading [COSC470.01]", at(10, 10)))!
+        let existing = [
+            "2": Canvas.Existing(reminderID: "r2", title: "COSC 470: Quiz 3", due: at(10, 11), isCompleted: false),
+            "3": Canvas.Existing(reminderID: "r3", title: "COSC 490: Lab 2", due: at(10, 7), isCompleted: true),
+            "5": Canvas.Existing(reminderID: "r5", title: "COSC 470: Reading", due: at(10, 10), isCompleted: false),
+        ]
+        let changes = Canvas.changes(assignments: [new, moved, finished, past, same], existing: existing, now: now, calendar: cal)
+        #expect(changes == [.create(new), .update(reminderID: "r2", moved)])
+    }
+
+    @Test func courseNumbersFromFeedLinks() {
+        let item = AgendaItem(id: "event-assignment-9@1", title: "Quiz [COSC470.01]", start: at(10, 9), end: at(10, 10),
+                              isAllDay: true, calendar: "Canvas",
+                              url: URL(string: "https://samford.instructure.com/calendar?include_contexts=course_55120&month=10&year=2026"))
+        let assignment = Canvas.assignment(item)!
+        #expect(assignment.courseID == "55120")
+        #expect(Canvas.courses([assignment]) == ["55120": "COSC 470"])
+    }
+
+    @Test func assignmentsCountDown() {
+        let item = feedItem(7, "Final project [COSC490.01]", at(10, 20))
+        #expect(Countdown.upcoming([item], now: now, calendar: cal).map(\.title) == ["Final project [COSC490.01]"])
+    }
+}
+
+@Suite struct WorkTests {
+    func commit(_ repo: String, _ date: Date) -> Work.Commit {
+        Work.Commit(hash: "\(repo)\(date.timeIntervalSince1970)", repo: repo, date: date, message: "x")
+    }
+
+    @Test func commitsCloseTogetherAreOneSession() {
+        let commits = [
+            commit("daybook", at(10, 6, 9)), commit("daybook", at(10, 6, 10, 30)), commit("sift", at(10, 6, 11)),
+            commit("sift", at(10, 6, 15)), // over 2 hours later: a new session
+        ]
+        let sessions = Work.sessions(commits)
+        #expect(sessions.count == 2)
+        #expect(sessions[0].start == at(10, 6, 8, 30)) // half an hour before the first commit
+        #expect(sessions[0].end == at(10, 6, 11))
+        #expect(sessions[0].repos == ["daybook", "sift"])
+        #expect(sessions[1].duration == 30 * 60)
+    }
+
+    @Test func readsGitLogWithChangeCounts() {
+        let rs = "\u{1E}", fs = "\u{1F}"
+        let output = "\(rs)abc1234def\(fs)1791300000\(fs)Mason Kimball\(fs)me@example.com\(fs)Add free time\n\n 3 files changed, 120 insertions(+), 8 deletions(-)\n"
+            + "\(rs)fff0000aaa\(fs)1791200000\(fs)dependabot[bot]\(fs)bot@github.com\(fs)Bump x\n\n 1 file changed, 2 insertions(+)\n"
+            + "\(rs)0001112223\(fs)1791100000\(fs)Mason Kimball\(fs)me@example.com\(fs)Delete old file\n\n 1 file changed, 40 deletions(-)\n"
+        let commits = Work.parseGitLog(output, repo: "daybook") { name, _ in name == "Mason Kimball" }
+        #expect(commits.map(\.shortHash) == ["abc1234", "0001112"])
+        #expect(commits[0].changes == "+120 \u{2212}8 \u{00B7} 3 files")
+        #expect(commits[1].insertions == 0 && commits[1].deletions == 40 && commits[1].files == 1)
+    }
+
+    @Test func readsGitHubEvents() throws {
+        let json = """
+        [
+          {"type":"PullRequestEvent","created_at":"2026-10-06T15:00:00Z","repo":{"name":"MasonKimball05/gradtrack"},
+           "payload":{"action":"closed","pull_request":{"number":12,"title":"Calendar feed","merged":true}}},
+          {"type":"IssuesEvent","created_at":"2026-10-05T15:00:00Z","repo":{"name":"MasonKimball05/sift"},
+           "payload":{"action":"opened","issue":{"number":3,"title":"Docx text"}}},
+          {"type":"WatchEvent","created_at":"2026-10-05T16:00:00Z","repo":{"name":"someone/thing"},"payload":{"action":"started"}},
+          {"type":"PushEvent","created_at":"2026-10-04T15:00:00Z","repo":{"name":"MasonKimball05/hackathon-2026"},"payload":{}}
+        ]
+        """
+        let activities = Work.activities(fromEvents: Data(json.utf8))
+        #expect(activities.map(\.kind) == [.prMerged, .issueOpened, .push])
+        #expect(activities[0].repo == "gradtrack")
+        #expect(activities[0].label == "Merged PR #12")
+        let slim = #"[{"type":"PullRequestEvent","created_at":"2026-10-06T15:00:00Z","repo":{"name":"a/b"},"payload":{"action":"closed","pull_request":{"number":3,"merged_at":"2026-10-06T15:00:00Z"}}}]"#
+        #expect(Work.activities(fromEvents: Data(slim.utf8)).first?.kind == .prMerged)
+    }
+
+    @Test func weeklyHoursByCalendarAndRepo() {
+        let events = [
+            event("Lecture", at(10, 6, 10), at(10, 6, 11, 30), calendar: "Samford"),
+            event("Lab", at(10, 6, 11), at(10, 6, 12), calendar: "Samford"),          // overlaps: counted once
+            event("Chapter", at(10, 7, 19), at(10, 7, 20), calendar: "Parliament"),
+            event("Deadline", at(10, 7), at(10, 8), allDay: true, calendar: "Deadlines"), // all day: not time
+        ]
+        let snapshot = Work.Snapshot(gathered: now, commits: [commit("sift", at(10, 7, 14)), commit("sift", at(10, 7, 15))],
+                                     activities: [], problems: [])
+        let logged = [event("Study", at(10, 6, 21), at(10, 6, 23), calendar: TimeReport.logCalendar)] // to 11 PM; free time stops at 10
+        let report = TimeReport(start: at(10, 6), days: 2, events: events + logged, snapshot: snapshot, calendar: cal)
+        #expect(report.categories.map(\.name) == ["Samford", "Study", "Coding", "Parliament"])
+        #expect(report.categories.map(\.kind) == [.calendar, .logged, .coding, .calendar])
+        #expect(report.categories[0].hours == 2)
+        #expect(report.categories[2].hours == 1.5) // 1:30 to 3:00
+        // Free, 8 AM to 10 PM: day one loses 10-12 (classes) and 9-10 PM (study): 11h.
+        // Day two loses 1:30-3 (coding) and 7-8 PM (chapter): 11.5h.
+        #expect(report.days.map(\.free) == [11, 11.5])
+        #expect(report.free == 22.5)
+        #expect(report.byRepo.map(\.name) == ["sift"])
+        #expect(report.commits == 2)
+        #expect(TimeReport.hours(1.5) == "1.5h" && TimeReport.hours(0.75) == "45m" && TimeReport.hours(12) == "12h")
+        let md = report.markdown(title: "Where your time went", timeZone: chicago)
+        #expect(md.contains("## Hours by kind\n- Samford \u{2013} Calendar: 2.0h\n- Study: 2.0h (logged)\n- Coding: 1.5h\n- Parliament \u{2013} Calendar: 1.0h"))
+        #expect(TimeReport.label("Calendar", kind: .calendar) == "Calendar")
+        #expect(TimeReport.label("Home", kind: .calendar) == "Home \u{2013} Calendar")
+        #expect(TimeReport.label("Study", kind: .logged) == "Study")
+        #expect(md.contains("Free time (8 AM to 10 PM, nothing scheduled, coded or logged): 22h"))
+        #expect(cal.isDate(TimeReport.weekStart(of: at(10, 8), calendar: cal), inSameDayAs: at(10, 4))) // Thu -> Sun
+    }
+}
+
+@Suite struct BillsTests {
+    @Test func spotsBillingSubjects() {
+        #expect(Bills.isBilling(subject: "Your Spotify Premium receipt"))
+        #expect(Bills.isBilling(subject: "Your subscription will renew soon"))
+        #expect(!Bills.isBilling(subject: "Your order has shipped"))
+        #expect(!Bills.isBilling(subject: "Verify your billing email"))
+        #expect(!Bills.isBilling(subject: "Lunch on Friday?"))
+    }
+
+    @Test func merchantNames() {
+        #expect(Bills.merchant(fromSender: "Spotify <no-reply@spotify.com>") == "Spotify")
+        #expect(Bills.merchant(fromSender: "\"Netflix via Stripe\" <invoice@stripe.com>") == "Netflix")
+        #expect(Bills.merchant(fromSender: "billing@mail.github.com") == "Github")
+        #expect(Bills.merchant(fromSender: "Notion Billing <team@makenotion.com>") == "Notion")
+    }
+
+    @Test func amountsAndRenewalDates() {
+        #expect(Bills.amount(in: "Thanks! Subtotal $10.99 Tax $1.00 Total: $11.99") == 11.99)
+        #expect(Bills.amount(in: "You were charged $1,299.00 today") == 1299)
+        #expect(Bills.amount(in: "Plan $4.99 and add-on $2.00") == 4.99)
+        #expect(Bills.amount(in: "No money here") == nil)
+        let renews = Bills.renewalDate(in: "Your plan renews on October 21, 2026 automatically.", after: at(10, 1))
+        #expect(renews.map { cal.component(.day, from: $0) } == 21)
+    }
+
+    func email(_ merchant: String, _ date: Date, _ amount: Double?, renews: Date? = nil) -> Bills.Email {
+        Bills.Email(merchant: merchant, subject: "Receipt", date: date, amount: amount, renews: renews)
+    }
+
+    @Test func findsSubscriptionsByRhythm() {
+        let emails = [
+            email("Spotify", at(7, 10), 11.99), email("Spotify", at(8, 10), 11.99), email("Spotify", at(9, 10), 11.99),
+            email("Spotify", at(9, 11), nil),                   // a second email for the same charge
+            email("Amazon", at(9, 2), 23.17),                   // a one-off order
+            email("iCloud", at(9, 25), 0.99, renews: at(10, 25)),// one email, but says when it renews
+            email("Old Gym", at(3, 1), 30), email("Old Gym", at(4, 1), 30), // stopped in April
+        ]
+        let subs = Bills.subscriptions(emails, now: now, calendar: cal)
+        #expect(subs.map(\.merchant) == ["Spotify", "iCloud", "Old Gym"])
+        #expect(subs[0].cadence == .monthly && subs[0].charges == 3 && subs[0].amount == 11.99)
+        #expect(subs[0].nextRenewal.map { cal.isDate($0, inSameDayAs: at(10, 10)) } == true)
+        #expect(subs[2].nextRenewal == nil)                    // looks cancelled
+        #expect(abs((subs[0].monthly ?? 0) - 11.99) < 0.01)
+        #expect(Bills.subscriptions(emails, now: now, ignored: ["Spotify"], calendar: cal).count == 2)
+        let md = Bills.Snapshot(gathered: now, subscriptions: subs).markdown(now: now, timeZone: chicago)
+        #expect(md.contains("- Spotify: $11.99 monthly, renews Sat Oct 10 (in 4 days)"))
+    }
+}
+
+@Suite struct SleepTests {
+    func sample(_ start: Date, _ end: Date, asleep: Bool = true) -> Sleep.Sample {
+        Sleep.Sample(start: start, end: end, asleep: asleep)
+    }
+
+    @Test func samplesBecomeNights() {
+        let samples = [
+            sample(at(10, 5, 23), at(10, 6, 2)),
+            sample(at(10, 6, 2, 20), at(10, 6, 7)),               // woke 20 min: same night, not counted
+            sample(at(10, 5, 22, 30), at(10, 6, 7, 10), asleep: false), // in bed: ignored when stages exist
+            sample(at(10, 6, 14), at(10, 6, 14, 30)),             // a 30-minute nap: left out
+            sample(at(10, 6, 23, 30), at(10, 7, 6, 30)),          // the next night
+            sample(at(10, 7, 1), at(10, 7, 3)),                   // a second source, overlapping: counted once
+        ]
+        let nights = Sleep.nights(samples)
+        #expect(nights.count == 2)
+        #expect(nights[0].start == at(10, 5, 23) && nights[0].end == at(10, 6, 7))
+        #expect(nights[0].asleep == 3 * 3600 + 4 * 3600 + 40 * 60) // 11-2 and 2:20-7
+        #expect(nights[1].asleep == 7 * 3600)
+        #expect(Sleep.decode(Sleep.encode(nights)) == nights)
+    }
+
+    @Test func inBedOnlyStillMakesANight() {
+        let nights = Sleep.nights([sample(at(10, 5, 23), at(10, 6, 7), asleep: false)])
+        #expect(nights.map(\.asleep) == [8 * 3600])
+    }
+
+    @Test func freeTimeRunsFromWakingToSleeping() {
+        let nights = [
+            Sleep.Night(start: at(10, 5, 23), end: at(10, 6, 7, 30), asleep: 8 * 3600),
+            Sleep.Night(start: at(10, 7, 0, 30), end: at(10, 7, 8), asleep: 7 * 3600), // after midnight
+        ]
+        let events = [event("Lecture", at(10, 6, 10), at(10, 6, 11))]
+        let report = TimeReport(start: at(10, 6), days: 2, events: events, snapshot: nil, nights: nights, calendar: cal)
+        // Day one: awake 7:30 AM to 12:30 AM (17h), minus the hour of lecture: 16h free.
+        #expect(report.days[0].free == 16)
+        #expect(report.days[0].slept == 8)
+        #expect(report.days[0].hours[TimeReport.sleep] == 8)
+        // Day two has last night's sleep but no bedtime: 8 AM (after the 8 AM wake-up) to 10 PM.
+        #expect(report.days[1].free == 14)
+        #expect(report.categories.first { $0.name == TimeReport.sleep }?.kind == .sleep)
+    }
+}
+
+@Suite struct HopTests {
+    @Test func feedHasWhatsLeftOfToday() {
+        let events = [
+            event("Lecture", at(10, 6, 8), at(10, 6, 8, 50)),     // over
+            event("Lab", at(10, 6, 13), at(10, 6, 15)),
+            event("Fair", at(10, 6), at(10, 7), allDay: true),
+            event("Tomorrow", at(10, 7, 9), at(10, 7, 10)),
+        ]
+        let tasks = [
+            TaskItem(id: "a", title: "Essay", due: at(10, 6), priority: .high),
+            TaskItem(id: "b", title: "Late", due: at(10, 4)),
+            TaskItem(id: "c", title: "Later", due: at(10, 9)),
+        ]
+        let feed = HopFeed.build(now: now, events: events, tasks: tasks, countdowns: [], waitingOnReplies: 2,
+                                 sessions: [], commitsToday: 0, calendar: cal)
+        #expect(feed.today.map(\.title) == ["Fair", "Lab"])
+        #expect(feed.tasks.map(\.id) == ["a", "b"])   // high priority first, then by due date
+        #expect(feed.tasks[1].overdue)
+        #expect(feed.tasks[0].priority == "high")
+    }
+
+    @Test func linksDaybookAnswers() {
+        #expect(DaybookLink(URL(string: "daybook://add-task?text=submit%20report%20friday")!) == .addTask("submit report friday"))
+        #expect(DaybookLink(URL(string: "daybook://complete-task?id=XYZ")!) == .completeTask(id: "XYZ"))
+        #expect(DaybookLink(URL(string: "daybook://show?view=time")!) == .show("time"))
+        let log = DaybookLink(URL(string: "daybook://log?title=Study&start=2026-10-07T03:00:00Z&end=2026-10-07T04:00:00Z")!)
+        #expect(log == .log(title: "Study", start: Date(timeIntervalSince1970: 1_791_342_000), end: Date(timeIntervalSince1970: 1_791_345_600)))
+        #expect(DaybookLink(URL(string: "daybook://log?title=Study&start=2026-10-07T04:00:00Z&end=2026-10-07T03:00:00Z")!) == nil)
+        #expect(DaybookLink(URL(string: "daybook://delete-everything")!) == nil)
+        #expect(DaybookLink(URL(string: "https://add-task?text=x")!) == nil)
+    }
+}

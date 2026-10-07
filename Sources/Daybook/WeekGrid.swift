@@ -105,12 +105,7 @@ struct WeekGridView: View {
                 let next = Calendar.current.date(byAdding: .day, value: 1, to: day)!
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(allDay.filter { $0.start < next && $0.end > day }.prefix(3)) { item in
-                        Text(item.title)
-                            .font(.caption2).lineLimit(1)
-                            .padding(.horizontal, 4).padding(.vertical, 1)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color(hex: item.color).opacity(0.25), in: RoundedRectangle(cornerRadius: 3))
-                            .onTapGesture {} // keeps the strip from passing taps through
+                        AllDayChip(store: store, item: item)
                     }
                 }
                 .frame(minWidth: 0, maxWidth: .infinity, minHeight: 18, alignment: .topLeading)
@@ -156,6 +151,41 @@ struct WeekGridView: View {
                             })
                     }
                 }
+                // Sleep, from Health: a faint indigo wash across the night, behind everything.
+                ForEach(Array(days.enumerated()), id: \.element) { index, day in
+                    let next = Calendar.current.date(byAdding: .day, value: 1, to: day)!
+                    ForEach(store.sleepNights.filter { $0.start < next && $0.end > day }) { night in
+                        let top = max(night.start, day), bottom = min(night.end, next)
+                        let height = CGFloat(bottom.timeIntervalSince(top) / 3600) * Self.hourHeight
+                        Rectangle()
+                            .fill(Color(red: 0.36, green: 0.38, blue: 0.62).opacity(0.12))
+                            .overlay(alignment: night.end <= next ? .bottomLeading : .topLeading) {
+                                // Labeled on the morning it ended, once.
+                                if night.end <= next {
+                                    Text("Slept \(TimeReport.hours(night.asleep / 3600))")
+                                        .font(.caption2.weight(.medium))
+                                        .foregroundStyle(Color(red: 0.42, green: 0.45, blue: 0.78))
+                                        .padding(3)
+                                }
+                            }
+                            .frame(width: columnWidth, height: max(height, 1))
+                            .position(x: Self.gutter + CGFloat(index) * columnWidth + columnWidth / 2,
+                                      y: CGFloat(top.timeIntervalSince(day) / 3600) * Self.hourHeight + height / 2)
+                            .allowsHitTesting(false)
+                    }
+                }
+                // Coding sessions: faint orange, behind the events.
+                ForEach(Array(days.enumerated()), id: \.element) { index, day in
+                    let next = Calendar.current.date(byAdding: .day, value: 1, to: day)!
+                    ForEach(store.workSessions.filter { $0.start < next && $0.end > day }) { session in
+                        let top = max(session.start, day), bottom = min(session.end, next)
+                        let height = max(CGFloat(bottom.timeIntervalSince(top) / 3600) * Self.hourHeight, 14)
+                        GridSessionBlock(session: session)
+                            .frame(width: columnWidth - 4, height: height)
+                            .position(x: Self.gutter + CGFloat(index) * columnWidth + 2 + (columnWidth - 4) / 2,
+                                      y: CGFloat(top.timeIntervalSince(day) / 3600) * Self.hourHeight + height / 2)
+                    }
+                }
                 // Events.
                 ForEach(Array(days.enumerated()), id: \.element) { index, day in
                     let next = Calendar.current.date(byAdding: .day, value: 1, to: day)!
@@ -165,11 +195,14 @@ struct WeekGridView: View {
                         let place = places[item.id] ?? .init(column: 0, columns: 1)
                         let width = (columnWidth - 4) / CGFloat(place.columns)
                         let top = max(item.start, day), bottom = min(item.end, next)
-                        GridEventBlock(store: store, item: item, columnWidth: columnWidth,
-                                       height: max(CGFloat(bottom.timeIntervalSince(top) / 3600) * Self.hourHeight, 18))
-                            .frame(width: width - 1)
-                            .offset(x: Self.gutter + CGFloat(index) * columnWidth + 2 + CGFloat(place.column) * width,
-                                    y: CGFloat(top.timeIntervalSince(day) / 3600) * Self.hourHeight)
+                        let height = max(CGFloat(bottom.timeIntervalSince(top) / 3600) * Self.hourHeight, 18)
+                        let left = Self.gutter + CGFloat(index) * columnWidth + 2 + CGFloat(place.column) * width
+                        let y = CGFloat(top.timeIntervalSince(day) / 3600) * Self.hourHeight
+                        // `position` (not `offset`) so the block is really there: its details
+                        // popover then opens beside it, not at the grid's top-left corner.
+                        GridEventBlock(store: store, item: item, columnWidth: columnWidth, height: height)
+                            .frame(width: width - 1, height: height)
+                            .position(x: left + (width - 1) / 2, y: y + height / 2)
                     }
                 }
                 // Now.
@@ -187,6 +220,70 @@ struct WeekGridView: View {
             }
         }
         .frame(height: Self.hourHeight * 24)
+    }
+}
+
+/// A coding session behind the events: faint orange; click for its commits.
+private struct GridSessionBlock: View {
+    let session: Work.Session
+    @State private var showingCommits = false
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 4)
+            .fill(codingColor.opacity(0.14))
+            .overlay(alignment: .leading) { Rectangle().fill(codingColor.opacity(0.8)).frame(width: 2) }
+            .overlay(alignment: .bottomTrailing) {
+                Text("\(session.repos.joined(separator: ", ")) \u{00B7} \(session.commits)")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(codingColor)
+                    .lineLimit(1)
+                    .padding(3)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 4))
+            .onTapGesture { showingCommits = true }
+            .popover(isPresented: $showingCommits, arrowEdge: .trailing) {
+                VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Coding \(session.start.formatted(date: .omitted, time: .shortened)) \u{2013} \(session.end.formatted(date: .omitted, time: .shortened))")
+                            .font(.headline)
+                        Text("\(session.repos.joined(separator: ", ")) \u{00B7} \(session.commits) commit\(session.commits == 1 ? "" : "s") \u{00B7} \(TimeReport.hours(session.duration / 3600))")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Divider()
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(session.items.reversed()) { CommitRow(commit: $0) }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(14)
+                .frame(width: 400)
+                .frame(maxHeight: 480)
+            }
+            .help("Coding: \(session.commits) commits. Click for them.")
+    }
+}
+
+/// An all-day item at the top of the week: click for its details.
+private struct AllDayChip: View {
+    let store: CalendarStore
+    let item: AgendaItem
+    @State private var showingDetails = false
+
+    var body: some View {
+        Text(item.title)
+            .font(.caption2).lineLimit(1)
+            .strikethrough(store.isDone(item))
+            .padding(.horizontal, 4).padding(.vertical, 1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(hex: item.color).opacity(0.25), in: RoundedRectangle(cornerRadius: 3))
+            .contentShape(Rectangle())
+            .onTapGesture { showingDetails = true }
+            .popover(isPresented: $showingDetails, arrowEdge: .bottom) {
+                EventDetailView(store: store, item: item).frame(width: 380).frame(maxHeight: 620)
+            }
+            .help(item.title)
     }
 }
 
@@ -218,6 +315,8 @@ private struct GridEventBlock: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .frame(height: max(height + stretch, 18), alignment: .topLeading)
         .background(Color(hex: item.color).opacity(done ? 0.12 : 0.25), in: RoundedRectangle(cornerRadius: 4))
+        // A solid backing under the tint, so coding blocks behind don't show through the text.
+        .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 4))
         .overlay(alignment: .leading) { Rectangle().fill(Color(hex: item.color)).frame(width: 3) }
         .clipShape(RoundedRectangle(cornerRadius: 4))
         .overlay(alignment: .bottom) {
@@ -232,6 +331,7 @@ private struct GridEventBlock: View {
         }
         .offset(move)
         .opacity(move == .zero ? 1 : 0.8)
+        .contentShape(RoundedRectangle(cornerRadius: 4)) // the whole block, not just its text
         .onTapGesture { showingDetails = true }
         .gesture(editable ? DragGesture(minimumDistance: 4)
             .onChanged { drag in

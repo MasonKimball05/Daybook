@@ -12,7 +12,7 @@ struct ContentView: View {
     #endif
 
     enum Tab: String, CaseIterable, Identifiable {
-        case today = "Today", week = "Week", month = "Month", agenda = "Agenda", tasks = "Tasks"
+        case today = "Today", week = "Week", month = "Month", agenda = "Agenda", tasks = "Tasks", time = "Time"
         var id: String { rawValue }
     }
 
@@ -29,6 +29,7 @@ struct ContentView: View {
                 case .week: DayListView(store: store, start: .now, days: 7)
                 #endif
                 case .agenda: DayListView(store: store, start: .now, days: 7)
+                case .time: TimeView(store: store)
                 case .month: MonthView(store: store)
                 case .tasks: TasksView(store: store)
                 }
@@ -46,7 +47,7 @@ struct ContentView: View {
                     ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 380)
+                .frame(width: 440)
             }
             #if os(macOS)
             ToolbarItem {
@@ -74,6 +75,16 @@ struct ContentView: View {
         }
         #if os(macOS)
         .sheet(isPresented: $showingBrief) { BriefSheet().onAppear { store.briefSeen() } }
+        // A daybook://show or daybook://brief link (from hop).
+        .onReceive(NotificationCenter.default.publisher(for: .daybookShow)) { note in
+            guard let view = note.object as? String else { return }
+            if view == "brief" {
+                if Brief.exists { showingBrief = true }
+            } else if let match = Tab.allCases.first(where: { $0.rawValue.lowercased() == view.lowercased() }) {
+                query = ""
+                tab = match
+            }
+        }
         .sheet(isPresented: $addingEvent) { EventEditor(store: store) }
         .sheet(isPresented: $planning) { PlanDayView(store: store) }
         // A new brief pops up once: on launch, or the next time Daybook comes to the front.
@@ -110,7 +121,9 @@ struct DayListView: View {
     var quickAddDate: Date? = nil
 
     var body: some View {
-        let agenda = Agenda.days(from: start, count: days, events: store.events, tasks: store.tasks)
+        // Canvas assignments show as their tasks, not again as calendar items.
+        let agenda = Agenda.days(from: start, count: days, events: store.events.filter { Canvas.assignmentID($0.id) == nil },
+                                 tasks: store.tasks)
         let isToday = days == 1 && Calendar.current.isDateInToday(start)
         let overdue = isToday || days > 1 ? store.tasks.filter { $0.isOverdue(now: .now, calendar: .current) } : []
         List {
@@ -119,7 +132,7 @@ struct DayListView: View {
             }
             if isToday && !store.countdowns.isEmpty {
                 Section("Counting down") {
-                    ForEach(store.countdowns.prefix(3)) { CountdownRow(item: $0) }
+                    ForEach(store.countdowns.prefix(3)) { CountdownRow(store: store, item: $0) }
                 }
             }
             if !overdue.isEmpty {
@@ -128,8 +141,9 @@ struct DayListView: View {
                 }
             }
             ForEach(agenda) { day in
+                let work = store.coding(on: day.date)
                 Section {
-                    if day.isEmpty {
+                    if day.isEmpty && work.sessions.isEmpty && work.activities.isEmpty {
                         Text("Nothing scheduled").foregroundStyle(.secondary)
                     }
                     ForEach(day.allDay) { EventRow(store: store, item: $0) }
@@ -140,6 +154,9 @@ struct DayListView: View {
                         }
                     }
                     ForEach(day.tasks) { TaskRow(store: store, task: $0, showDate: false) }
+                    // Coding, in orange so it stands apart from the calendar.
+                    ForEach(work.sessions) { SessionRow(session: $0) }
+                    ForEach(work.activities) { ActivityRow(activity: $0) }
                 } header: {
                     Text(Self.heading(day.date)).font(.headline)
                 }
@@ -152,6 +169,10 @@ struct DayListView: View {
         }
         .listStyle(.inset)
         .scrollDismissesKeyboard(.immediately)
+        #if os(macOS)
+        // Today's commits: gather again if the last look is over 10 minutes old.
+        .task { if isToday { await store.refreshWorkIfStale() } }
+        #endif
     }
 
     /// Timed events with the free stretches between them, in order. Past days get no free rows.
@@ -247,7 +268,8 @@ struct EventRow: View {
         .padding(.vertical, 2)
         // Tapping anywhere but the check opens the details.
         .contentShape(Rectangle())
-        .onTapGesture { showingDetails = true }
+        // A renewal comes from email, not the calendar: there are no event details to show.
+        .onTapGesture { if !item.id.hasPrefix("bill-") { showingDetails = true } }
         #if os(macOS)
         .popover(isPresented: $showingDetails, arrowEdge: .trailing) {
             EventDetailView(store: store, item: item).frame(width: 380).frame(maxHeight: 620)
@@ -623,20 +645,52 @@ struct FreeRow: View {
     }
 }
 
-/// "Project deadline · Deadlines        12 days"
+/// "○ Lab 6 · Thu, Oct 9        2 days": check it off, click for details,
+/// right-click for more. A Canvas assignment's check also checks its task.
 struct CountdownRow: View {
+    let store: CalendarStore
     let item: AgendaItem
+    @State private var showingDetails = false
 
     var body: some View {
+        let done = store.isDone(item)
         HStack(spacing: 8) {
+            DoneButton(done: done) { store.setDone(item, !done) }
             Circle().fill(Color(hex: item.color)).frame(width: 7, height: 7)
-            Text(item.title).lineLimit(1)
+            Text(item.title).lineLimit(1).strikethrough(done)
             Text(item.start.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
                 .font(.caption).foregroundStyle(.secondary)
             Spacer()
             Text(Countdown.label(until: item.start, now: .now))
                 .font(.callout.weight(.semibold).monospacedDigit())
                 .foregroundStyle(Countdown.days(until: item.start, now: .now) <= 3 ? Color.red : Color.primary)
+        }
+        .opacity(done ? 0.5 : 1)
+        .contentShape(Rectangle())
+        .onTapGesture { showingDetails = true }
+        #if os(macOS)
+        .popover(isPresented: $showingDetails, arrowEdge: .trailing) {
+            EventDetailView(store: store, item: item).frame(width: 380).frame(maxHeight: 620)
+        }
+        #else
+        .sheet(isPresented: $showingDetails) {
+            NavigationStack {
+                EventDetailView(store: store, item: item)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) { Button("Done") { showingDetails = false } }
+                    }
+            }
+            .presentationDetents([.medium, .large])
+        }
+        #endif
+        .contextMenu {
+            Button(done ? "Mark Not Done" : "Mark Done") { store.setDone(item, !done) }
+            if let merchant = store.billMerchant(item) {
+                // Cancelled, or not a subscription at all: stop tracking it.
+                Button("Remove Subscription", role: .destructive) { store.ignoreBill(merchant) }
+            } else {
+                Button("Show Details") { showingDetails = true }
+            }
         }
     }
 }
@@ -934,6 +988,101 @@ struct SearchResultsView: View {
     }
 }
 
+// MARK: Coding work
+
+/// The color for everything from GitHub and git, apart from calendar items.
+let codingColor = Color.orange
+
+/// "Coding 9:10 – 11:45 AM · daybook, sift · 12 commits", opening to its commits.
+struct SessionRow: View {
+    let session: Work.Session
+    @State private var open = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $open) {
+            ForEach(session.items.reversed()) { CommitRow(commit: $0) }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "chevron.left.forwardslash.chevron.right")
+                    .font(.callout.weight(.semibold)).foregroundStyle(codingColor).frame(width: 22)
+                RoundedRectangle(cornerRadius: 2).fill(codingColor).frame(width: 4, height: 30)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Coding \(session.start.formatted(date: .omitted, time: .shortened)) \u{2013} \(session.end.formatted(date: .omitted, time: .shortened))")
+                        .font(.body.weight(.medium))
+                    Text("\(session.repos.joined(separator: ", ")) \u{00B7} \(session.commits) commit\(session.commits == 1 ? "" : "s") \u{00B7} \(TimeReport.hours(session.duration / 3600))")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { withAnimation(.snappy) { open.toggle() } }
+        }
+        .tint(codingColor)
+    }
+}
+
+/// One commit: its message, then "a1b2c3d · 2:14 PM · sift · +120 −8 · 3 files".
+struct CommitRow: View {
+    let commit: Work.Commit
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(commit.message).lineLimit(2).textSelection(.enabled)
+            HStack(spacing: 6) {
+                Text(commit.shortHash).font(.caption.monospaced()).foregroundStyle(codingColor)
+                Text("\u{00B7} \(commit.date.formatted(date: .omitted, time: .shortened)) \u{00B7} \(commit.repo)")
+                if let changes = commit.changes { Text("\u{00B7} \(changes)").monospacedDigit() }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
+        .contextMenu {
+            Button("Copy Hash") { Clipboard.copy(commit.hash) }
+            Button("Copy Message") { Clipboard.copy(commit.message) }
+        }
+    }
+}
+
+/// "Merged PR #12 · gradtrack" with its title.
+struct ActivityRow: View {
+    let activity: Work.Activity
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon).font(.callout.weight(.semibold)).foregroundStyle(codingColor).frame(width: 22)
+            RoundedRectangle(cornerRadius: 2).fill(codingColor).frame(width: 4, height: 30)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(activity.label) \u{00B7} \(activity.repo)").font(.body.weight(.medium))
+                // GitHub's newer events often leave out the title.
+                Text((activity.title.isEmpty ? "" : activity.title + " \u{00B7} ") + activity.date.formatted(date: .omitted, time: .shortened))
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+    }
+
+    private var icon: String {
+        switch activity.kind {
+        case .prMerged: "arrow.triangle.merge"
+        case .prOpened, .prClosed: "arrow.triangle.pull"
+        case .issueOpened, .issueClosed: "smallcircle.filled.circle"
+        case .review: "checkmark.bubble"
+        case .comment: "text.bubble"
+        case .push: "arrow.up.circle"
+        }
+    }
+}
+
+enum Clipboard {
+    static func copy(_ text: String) {
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        #else
+        UIPasteboard.general.string = text
+        #endif
+    }
+}
+
 // MARK: Month
 
 struct MonthView: View {
@@ -1030,6 +1179,7 @@ struct DayCell: View {
         let items = store.events.filter { $0.start < dayEnd && $0.end > day }
             .sorted { ($0.isAllDay ? 0 : 1, $0.start) < ($1.isAllDay ? 0 : 1, $1.start) }
         let tasks = store.tasks.filter { $0.due.map { calendar.isDate($0, inSameDayAs: day) } == true }
+        let commits = store.work?.commitCount(on: day) ?? 0
         let isToday = calendar.isDateInToday(day)
         VStack(alignment: .leading, spacing: 2) {
             Text("\(calendar.component(.day, from: day))")
@@ -1044,11 +1194,14 @@ struct DayCell: View {
                     Circle().fill(Color(hex: item.color)).frame(width: 5, height: 5).opacity(store.isDone(item) ? 0.35 : 1)
                 }
                 if !tasks.isEmpty { Circle().strokeBorder(Color.secondary, lineWidth: 1.2).frame(width: 6, height: 6) }
+                if commits > 0 { Circle().fill(codingColor).frame(width: 5, height: 5) }
             }
             #else
             // Events first, then tasks (with an open circle, like a checkbox): three lines
             // in all, counting "+N more", which is all an 84-point cell has room for.
-            let lines = items.count + tasks.count > 3 ? 2 : 3
+            // An orange coding line takes one of the three when there were commits.
+            let room = commits > 0 ? 2 : 3
+            let lines = items.count + tasks.count > room ? room - 1 : room
             let shownEvents = Array(items.prefix(lines))
             let shownTasks = Array(tasks.prefix(lines - shownEvents.count))
             ForEach(shownEvents) { item in
@@ -1074,6 +1227,12 @@ struct DayCell: View {
                 Text("+\(extra) more")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+            }
+            if commits > 0 {
+                Label("\(commits) commit\(commits == 1 ? "" : "s")", systemImage: "chevron.left.forwardslash.chevron.right")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(codingColor)
+                    .lineLimit(1)
             }
             #endif
             Spacer(minLength: 0)
@@ -1108,6 +1267,30 @@ struct TasksView: View {
             if store.reminderAccess != .granted {
                 Text("Allow Reminders access to see and add tasks.").foregroundStyle(.secondary)
             }
+            #if os(macOS)
+            if !store.waiting.isEmpty {
+                Section {
+                    ForEach(store.waiting) { WaitingRow(store: store, item: $0) }
+                } header: {
+                    Text("Waiting for replies")
+                } footer: {
+                    Text("Emails you sent that haven\u{2019}t had an answer in 3 days or more. Updated each morning.")
+                }
+            }
+            #endif
+            #if os(macOS)
+            if let bills = store.bills, !bills.subscriptions.isEmpty {
+                Section {
+                    ForEach(bills.subscriptions) { SubscriptionRow(store: store, sub: $0) }
+                } header: {
+                    Text("Subscriptions")
+                } footer: {
+                    Text(bills.monthlyTotal > 0
+                         ? "About \(Bills.dollars(bills.monthlyTotal)) a month for the active ones. Found in billing emails; checked weekly."
+                         : "Found in billing emails; checked weekly.")
+                }
+            }
+            #endif
             section("Overdue", overdue)
             section("Today", today)
             section("Upcoming", later)
@@ -1313,6 +1496,68 @@ struct TaskDetailView: View {
         #endif
     }
 }
+
+#if os(macOS)
+/// "Spotify · $11.99 monthly · renews Sat, Oct 10", with Not a Subscription.
+struct SubscriptionRow: View {
+    let store: CalendarStore
+    let sub: Bills.Subscription
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "creditcard").foregroundStyle(Color(hex: "#8E5BD7"))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(sub.merchant)
+                Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+            if let next = sub.nextRenewal {
+                Text(Countdown.label(until: next, now: .now)).font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+            }
+            Button("Remove") { store.ignoreBill(sub.merchant) }
+                .controlSize(.small)
+                .buttonStyle(.bordered)
+                .help("Cancelled, or not a subscription: stop tracking \(sub.merchant), now and after future scans")
+        }
+        .opacity(sub.nextRenewal == nil ? 0.6 : 1)
+    }
+
+    private var detail: String {
+        var parts: [String] = []
+        if let amount = sub.amount { parts.append(Bills.dollars(amount) + (sub.cadence.map { " \($0.rawValue)" } ?? "")) }
+        if let next = sub.nextRenewal {
+            parts.append("renews " + next.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
+        } else {
+            parts.append("no charge lately, may be cancelled")
+        }
+        return parts.joined(separator: " \u{00B7} ")
+    }
+}
+
+/// "Dr. Smith · “Research position” · 6 days", with Follow Up and Got a Reply.
+struct WaitingRow: View {
+    let store: CalendarStore
+    let item: FollowUps.Waiting
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "paperplane").foregroundStyle(item.days >= 7 ? Color.orange : Color.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.to.joined(separator: ", ")).lineLimit(1)
+                Text("\u{201C}\(item.subject)\u{201D} \u{00B7} \(item.account) \u{00B7} \(item.days) days")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+            Button("Follow Up") { store.followUp(item) }
+                .help("Adds a task, due today, to follow up")
+            Button("Got a Reply") { store.dismiss(item) }
+                .help("Stop showing this one")
+        }
+        .controlSize(.small)
+        .buttonStyle(.bordered)
+    }
+}
+#endif
 
 /// Picks a day, and optionally a time, for a task. "Remove Date" makes it undated.
 struct DueEditor: View {
@@ -1611,4 +1856,9 @@ struct BriefHistoryView: View {
             }
         }
     }
+}
+
+extension Notification.Name {
+    /// Asks the main window to show a view ("today", "time"...) or the brief.
+    static let daybookShow = Notification.Name("daybookShow")
 }

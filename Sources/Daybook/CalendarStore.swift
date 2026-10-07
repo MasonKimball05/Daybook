@@ -41,6 +41,75 @@ final class CalendarStore {
     private(set) var completedToday: [TaskItem] = []
     /// AgendaItem ids marked done.
     private(set) var doneEventIDs: Set<String> = []
+    /// Canvas assignments whose task is checked off (by assignment number): the
+    /// feed's calendar item for one counts as done too.
+    private(set) var canvasDone: Set<String> = []
+    /// Each Canvas assignment's task, by assignment number.
+    @ObservationIgnored private var canvasTaskIDs: [String: String] = [:]
+    /// Emails waiting on a reply (Mac only: read from followups.json, which the
+    /// morning export writes).
+    private(set) var waiting: [FollowUps.Waiting] = []
+    /// Coding work: commits and GitHub activity (Mac only, see WorkCollector).
+    private(set) var work: Work.Snapshot? {
+        didSet { workSessions = work?.sessions ?? [] }
+    }
+    /// Nights of sleep, from Apple Health: read on the iPhone (SleepReader) and
+    /// shared through the Daybook list, so the Mac has them too.
+    private(set) var sleepNights: [Sleep.Night] = []
+
+    /// Subscriptions found in billing emails (Mac only; see BillReader).
+    private(set) var bills: Bills.Snapshot?
+
+    /// The merchant behind a renewal in the countdowns ("bill-Spotify@…"), or nil.
+    func billMerchant(_ item: AgendaItem) -> String? {
+        guard item.id.hasPrefix("bill-"), let at = item.id.lastIndex(of: "@") else { return nil }
+        return String(item.id[item.id.index(item.id.startIndex, offsetBy: 5)..<at])
+    }
+
+    /// Cancelled, or not a subscription: stop tracking a merchant, now and after
+    /// future scans (they skip it), and offer to undo.
+    func ignoreBill(_ merchant: String) {
+        var ignored = Set(UserDefaults.standard.stringArray(forKey: "ignoredBills") ?? [])
+        ignored.insert(merchant)
+        UserDefaults.standard.set(Array(ignored), forKey: "ignoredBills")
+        guard let bills else { return }
+        let removed = bills.subscriptions.filter { $0.merchant == merchant }
+        let updated = Bills.Snapshot(gathered: bills.gathered, subscriptions: bills.subscriptions.filter { $0.merchant != merchant })
+        try? updated.write()
+        self.bills = updated
+        offerUndo("Stopped tracking \(merchant)") { [weak self] in
+            guard let self, let current = self.bills else { return }
+            var ignored = Set(UserDefaults.standard.stringArray(forKey: "ignoredBills") ?? [])
+            ignored.remove(merchant)
+            UserDefaults.standard.set(Array(ignored), forKey: "ignoredBills")
+            let restored = Bills.Snapshot(gathered: current.gathered, subscriptions: current.subscriptions + removed)
+            try? restored.write()
+            self.bills = restored
+        }
+    }
+
+    /// Renewals in the next two weeks, as all-day items for the countdowns.
+    var renewals: [AgendaItem] {
+        let soon = Date.now.addingTimeInterval(14 * 86_400)
+        return (bills?.subscriptions ?? []).compactMap { sub in
+            guard let next = sub.nextRenewal, next < soon else { return nil }
+            let day = Calendar.current.startOfDay(for: next)
+            let title = sub.merchant + " renews" + (sub.amount.map { " \u{00B7} \(Bills.dollars($0))" } ?? "")
+            return AgendaItem(id: "bill-\(sub.merchant)@\(Int(day.timeIntervalSince1970))", title: title, start: day,
+                              end: day.addingTimeInterval(86_400), isAllDay: true, calendar: "Subscription renewals", color: "#8E5BD7")
+        }
+    }
+
+    /// The sessions worked out from `work`, kept so views don't redo it.
+    private(set) var workSessions: [Work.Session] = []
+
+    /// A day's coding sessions and GitHub activity (none on the iPhone).
+    func coding(on date: Date) -> (sessions: [Work.Session], activities: [Work.Activity]) {
+        let calendar = Calendar.current
+        let sessions = workSessions.filter { calendar.isDate($0.start, inSameDayAs: date) || calendar.isDate($0.end, inSameDayAs: date) }
+        let activities = (work?.activities ?? []).filter { $0.kind != .push && calendar.isDate($0.date, inSameDayAs: date) }
+        return (sessions, activities.sorted { $0.date < $1.date })
+    }
     /// Priorities set on events in Daybook, by AgendaItem id.
     private(set) var eventPriorities: [String: Priority] = [:]
     /// Morning briefs posted by the scheduled task (the last two weeks), newest first.
@@ -176,17 +245,36 @@ final class CalendarStore {
             tasks = await fetch(store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: lists))
             completedToday = await fetch(store.predicateForCompletedReminders(
                 withCompletionDateStarting: calendar.startOfDay(for: .now), ending: nil, calendars: lists))
+            let canvas: [String: Canvas.Existing] = lists.isEmpty ? [:] : await withCheckedContinuation { continuation in
+                store.fetchReminders(matching: store.predicateForReminders(in: lists)) { reminders in
+                    continuation.resume(returning: Self.canvasTasks(reminders ?? []))
+                }
+            }
+            canvasTaskIDs = canvas.mapValues(\.reminderID)
+            canvasDone = Set(canvas.filter(\.value.isCompleted).keys)
             let entries = await fetchEntries(in: daybookLists)
             doneEventIDs = Set(entries.compactMap { if case .done(let id) = $0.marker { id } else { nil } })
             eventPriorities = Dictionary(entries.compactMap { entry -> (String, Priority)? in
                 guard case .priority(let id, let level) = entry.marker, let priority = Priority(rawValue: level) else { return nil }
                 return (id, priority)
             }, uniquingKeysWith: { a, _ in a })
+            if let shared = entries.first(where: { $0.marker == .sleep }) {
+                let nights = Sleep.decode(shared.body)
+                // The iPhone's own reading from Health is fresher; don't replace it with an older copy.
+                if nights.count >= sleepNights.count || sleepNights.isEmpty { sleepNights = nights }
+            }
             briefs = entries.compactMap { entry in
                 if case .brief(let date) = entry.marker { PostedBrief(date: date, markdown: entry.body, version: entry.reminderID) } else { nil }
             }.sorted { $0.date > $1.date }
         }
         exportSummary()
+        #if os(macOS)
+        if reminderAccess == .granted && eventAccess == .granted { await syncCanvas() }
+        if work == nil { work = Work.Snapshot.read() }
+        bills = Bills.Snapshot.read()
+        let dismissed = FollowUpReader.dismissed
+        waiting = FollowUps.read().filter { !dismissed.contains($0.id) }
+        #endif
         await AlertScheduler.reschedule(self)
         #if os(iOS)
         // Keep the home screen widget in step with what the app shows.
@@ -275,6 +363,241 @@ final class CalendarStore {
         reminder.priority = priority.reminderPriority
         save(reminder)
     }
+
+    // MARK: Canvas
+
+    /// Tasks made from Canvas assignments, by assignment number.
+    nonisolated static func canvasTasks(_ reminders: [EKReminder]) -> [String: Canvas.Existing] {
+        var found: [String: Canvas.Existing] = [:]
+        for reminder in reminders {
+            guard case .canvas(let id) = DaybookMarker(url: nil, notes: reminder.notes) else { continue }
+            let due = reminder.dueDateComponents.flatMap { Calendar.current.date(from: $0) }
+            found[id] = Canvas.Existing(reminderID: reminder.calendarItemIdentifier, title: reminder.title ?? "",
+                                        due: due, isCompleted: reminder.isCompleted)
+        }
+        return found
+    }
+
+
+    #if os(macOS)
+    @ObservationIgnored private var syncingCanvas = false
+
+    /// Canvas assignments (from the subscribed feed) as tasks: new ones added to
+    /// the school list, open ones kept in step with the feed. Only the Mac does
+    /// this, so the Mac and iPhone never both add the same one; iCloud brings
+    /// the tasks to the phone.
+    func syncCanvas() async {
+        guard !syncingCanvas else { return }
+        syncingCanvas = true
+        defer { syncingCanvas = false }
+        let calendar = Calendar.current
+        // Half a year back as well as ahead: past assignments only fill in the course
+        // list for sift (Canvas.changes never makes tasks for them).
+        let start = calendar.date(byAdding: .day, value: -180, to: calendar.startOfDay(for: .now))!
+        let end = calendar.date(byAdding: .day, value: 360, to: start)!
+        // Every calendar, so hiding the Canvas calendar in Daybook doesn't stop this.
+        let assignments = store.events(matching: store.predicateForEvents(withStart: start, end: end, calendars: nil))
+            .filter { $0.calendarItemExternalIdentifier?.hasPrefix("event-assignment-") == true }
+            .map(EKConvert.item)
+            .compactMap(Canvas.assignment)
+        guard !assignments.isEmpty else { return }
+        try? Canvas.writeCourses(Canvas.courses(assignments))
+
+        let hidden = Set(doneLists().map(\.calendarIdentifier))
+        let lists = store.calendars(for: .reminder).filter { !hidden.contains($0.calendarIdentifier) }
+        guard !lists.isEmpty else { return }
+        // Tasks already made, wherever they've been moved since, found by their marker.
+        let existing: [String: Canvas.Existing] = await withCheckedContinuation { continuation in
+            // EventKit answers on its own queue, so the work there is a nonisolated
+            // function; a closure written here would count as main-actor code and trap.
+            store.fetchReminders(matching: store.predicateForReminders(in: lists)) { reminders in
+                continuation.resume(returning: Self.canvasTasks(reminders ?? []))
+            }
+        }
+        let changes = Canvas.changes(assignments: assignments, existing: existing, now: .now)
+        guard !changes.isEmpty, let list = schoolList() else { return }
+        for change in changes {
+            let reminder: EKReminder
+            let assignment: Canvas.Assignment
+            switch change {
+            case .create(let a):
+                reminder = EKReminder(eventStore: store)
+                reminder.calendar = list
+                reminder.notes = DaybookMarker.canvas(assignment: a.id).url.absoluteString + "\n\nFrom Canvas."
+                assignment = a
+            case .update(let id, let a):
+                guard let found = store.calendarItem(withIdentifier: id) as? EKReminder else { continue }
+                reminder = found
+                assignment = a
+            }
+            reminder.title = assignment.taskTitle
+            reminder.url = assignment.url
+            reminder.dueDateComponents = calendar.dateComponents([.year, .month, .day], from: assignment.due)
+            try? store.save(reminder, commit: false)
+        }
+        try? store.commit()
+    }
+
+    /// The list Canvas tasks go in: one with "school" in its name (iCloud's
+    /// first), else a new "School" list in iCloud.
+    private func schoolList() -> EKCalendar? {
+        let lists = store.calendars(for: .reminder).filter { $0.allowsContentModifications && $0.title.localizedCaseInsensitiveContains("school") }
+        if let list = lists.first(where: { Self.isICloud($0.source) }) ?? lists.first { return list }
+        guard let source = store.sources.first(where: { Self.isICloud($0) && !$0.calendars(for: .reminder).isEmpty })
+                ?? store.defaultCalendarForNewReminders()?.source else { return nil }
+        let list = EKCalendar(for: .reminder, eventStore: store)
+        list.title = "School"
+        list.source = source
+        return (try? store.saveCalendar(list, commit: true)) == nil ? nil : list
+    }
+    #endif
+
+    // MARK: Time
+
+    /// Events between two dates, from the calendars that are showing, plus the
+    /// Time Log calendar always (logged time counts even if it's hidden).
+    func events(from start: Date, to end: Date) -> [AgendaItem] {
+        guard eventAccess == .granted else { return [] }
+        let visible = store.calendars(for: .event)
+            .filter { !hiddenCalendars.contains($0.calendarIdentifier) || $0.title == TimeReport.logCalendar }
+        guard !visible.isEmpty else { return [] }
+        return store.events(matching: store.predicateForEvents(withStart: start, end: end, calendars: visible)).map(EKConvert.item)
+    }
+
+    /// The Sunday-to-Saturday week holding `date`.
+    func timeReport(weekOf date: Date) -> TimeReport {
+        let start = TimeReport.weekStart(of: date)
+        let end = Calendar.current.date(byAdding: .day, value: 7, to: start)!
+        return TimeReport(start: start, days: 7, events: events(from: start, to: end), snapshot: work, nights: sleepNights)
+    }
+
+    /// New nights from Health (on the iPhone): keep them, and share them with the
+    /// Mac through the Daybook list when they've changed.
+    func updateSleep(_ nights: [Sleep.Night]) async {
+        sleepNights = nights
+        let json = Sleep.encode(nights)
+        guard json != UserDefaults.standard.string(forKey: "postedSleep"), let list = doneMarksList(create: true) else { return }
+        await remove { $0 == .sleep }
+        let reminder = EKReminder(eventStore: store)
+        reminder.calendar = list
+        reminder.title = "Sleep from Health"
+        reminder.url = DaybookMarker.sleep.url
+        reminder.notes = DaybookMarker.sleep.url.absoluteString + "\n\n" + json
+        reminder.isCompleted = true
+        if (try? store.save(reminder, commit: true)) != nil {
+            UserDefaults.standard.set(json, forKey: "postedSleep")
+        }
+    }
+
+    /// What's been logged before, most used first, for the Log Activity sheet.
+    var loggedNames: [String] {
+        let since = Calendar.current.date(byAdding: .day, value: -90, to: .now)!
+        let names = events(from: since, to: .now).filter { $0.calendar == TimeReport.logCalendar }.map(\.title)
+        let counts = Dictionary(names.map { ($0, 1) }, uniquingKeysWith: +)
+        return counts.sorted { ($0.value, $1.key) > ($1.value, $0.key) }.map(\.key).prefix(8).map { $0 }
+    }
+
+    /// Logs time spent ("Study, 10 to 11 PM") as an event on the Time Log
+    /// calendar in iCloud, made the first time. It shows on the calendar and
+    /// counts in the weekly recap under its own name.
+    @discardableResult
+    func logActivity(_ title: String, from start: Date, to end: Date) -> Bool {
+        let name = title.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, end > start, let calendar = timeLogCalendar() else { return false }
+        let event = EKEvent(eventStore: store)
+        event.calendar = calendar
+        event.title = name
+        event.startDate = start
+        event.endDate = end
+        do {
+            try store.save(event, span: .thisEvent, commit: true)
+            let id = event.eventIdentifier
+            offerUndo("Logged \u{201C}\(name)\u{201D}") { [weak self] in if let id { self?.removeEvents([id]) } }
+            Task { await reload() }
+            return true
+        } catch {
+            lastError = "Couldn\u{2019}t log that: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    private func timeLogCalendar() -> EKCalendar? {
+        let calendars = store.calendars(for: .event)
+        if let existing = calendars.first(where: { $0.title == TimeReport.logCalendar && $0.allowsContentModifications }) {
+            return existing
+        }
+        guard let source = store.sources.first(where: { Self.isICloud($0) && !$0.calendars(for: .event).isEmpty })
+                ?? store.defaultCalendarForNewEvents?.source else { return nil }
+        let calendar = EKCalendar(for: .event, eventStore: store)
+        calendar.title = TimeReport.logCalendar
+        calendar.source = source
+        calendar.cgColor = CGColor(srgbRed: 0.18, green: 0.62, blue: 0.56, alpha: 1) // teal, apart from coding's orange
+        do {
+            try store.saveCalendar(calendar, commit: true)
+            return calendar
+        } catch {
+            lastError = "Couldn\u{2019}t make the Time Log calendar: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    // MARK: Coding work
+
+    #if os(macOS)
+    /// Gathers commits and GitHub activity again, saves them, and writes the
+    /// summaries the briefs read.
+    func refreshWork() async {
+        let snapshot = await WorkCollector.gather()
+        try? snapshot.write()
+        work = snapshot
+        exportWork()
+    }
+
+    func refreshWorkIfStale() async {
+        guard (work?.gathered ?? .distantPast).timeIntervalSinceNow < -600 else { return }
+        await refreshWork()
+    }
+
+    /// work.md (yesterday, for the morning brief) and time.md (the last 7 days,
+    /// for the Sunday preview).
+    func exportWork() {
+        guard let work else { return }
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
+        // The last full Sunday-to-Saturday week (on a Sunday, the one that just ended).
+        let lastWeekStart = calendar.date(byAdding: .day, value: -7, to: TimeReport.weekStart(of: today))!
+        let week = timeReport(weekOf: lastWeekStart)
+        let lastDay = TimeReport(start: yesterday, days: 1, events: events(from: yesterday, to: today), snapshot: work)
+        let range = lastWeekStart.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()) + " \u{2013} "
+            + calendar.date(byAdding: .day, value: 6, to: lastWeekStart)!.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
+        var problems = work.problems.map { "- \($0)" }.joined(separator: "\n")
+        if !problems.isEmpty { problems = "\n## Couldn\u{2019}t include\n" + problems + "\n" }
+        let folder = DailySummary.folder
+        try? Data((week.markdown(title: "Where your time went: \(range)") + problems).utf8)
+            .write(to: folder.appending(path: "time.md"), options: .atomic)
+        try? Data((lastDay.markdown(title: "Yesterday\u{2019}s work") + problems).utf8)
+            .write(to: folder.appending(path: "work.md"), options: .atomic)
+    }
+    #endif
+
+    // MARK: Waiting on replies
+
+    #if os(macOS)
+
+    /// "Got a reply" (or followed up): stop showing it, here and in the brief.
+    func dismiss(_ item: FollowUps.Waiting) {
+        FollowUpReader.dismissed.insert(item.id)
+        waiting.removeAll { $0.id == item.id }
+    }
+
+    /// A task to nudge them, due today, and the conversation leaves the list.
+    func followUp(_ item: FollowUps.Waiting) {
+        let who = item.to.first ?? "them"
+        addTask("Follow up with \(who): \(item.subject) today")
+        dismiss(item)
+    }
+    #endif
 
     // MARK: Task details
 
@@ -461,13 +784,15 @@ final class CalendarStore {
 
     // MARK: Events
 
-    func isDone(_ item: AgendaItem) -> Bool { doneEventIDs.contains(item.id) }
+    func isDone(_ item: AgendaItem) -> Bool {
+        doneEventIDs.contains(item.id) || Canvas.assignmentID(item.id).map(canvasDone.contains) == true
+    }
 
     func priority(of item: AgendaItem) -> Priority { eventPriorities[item.id] ?? .none }
 
     /// The next big dates, for the countdowns.
     var countdowns: [AgendaItem] {
-        Countdown.upcoming(events.filter { !isDone($0) }, priorities: eventPriorities, now: .now)
+        Countdown.upcoming((events + renewals).filter { !isDone($0) }, priorities: eventPriorities, now: .now)
     }
 
     /// An event's priority lives in the Daybook list, like done marks, since
@@ -497,6 +822,16 @@ final class CalendarStore {
             offerUndo(done ? "Marked \u{201C}\(item.title)\u{201D} done" : "Marked \u{201C}\(item.title)\u{201D} not done") { [weak self] in
                 self?.setDone(item, !done, undoable: false)
             }
+        }
+        // A Canvas assignment with a task: checking one checks the other.
+        if let assignment = Canvas.assignmentID(item.id), let taskID = canvasTaskIDs[assignment],
+           let reminder = store.calendarItem(withIdentifier: taskID) as? EKReminder {
+            if done { canvasDone.insert(assignment) } else { canvasDone.remove(assignment) }
+            doneEventIDs.remove(item.id)
+            reminder.isCompleted = done
+            save(reminder)
+            if !done { Task { await remove { $0 == .done(eventID: item.id) } } } // an older mark would keep it done
+            return
         }
         if done {
             guard !isDone(item), let list = doneMarksList(create: true) else { return }
@@ -539,7 +874,7 @@ final class CalendarStore {
             switch marker {
             case .brief(let day): day == key || day < cutoff
             case .ready: true // from an older version, which alerted through Reminders
-            case .done, .priority: false
+            case .done, .priority, .canvas, .sleep: false
             }
         }
         let reminder = EKReminder(eventStore: store)
@@ -918,6 +1253,11 @@ final class CalendarStore {
         do {
             let open = events.filter { !isDone($0) }
             try DailySummary(now: .now, events: open, tasks: tasks, eventPriorities: eventPriorities).write()
+            // For hop, the launcher.
+            let commitsToday = work?.commitCount(on: .now) ?? 0
+            try HopFeed.build(now: .now, events: open.filter { Canvas.assignmentID($0.id) == nil }, tasks: tasks,
+                              countdowns: countdowns, waitingOnReplies: waiting.count, sessions: workSessions,
+                              commitsToday: commitsToday).write()
             try WeekSummary(now: .now, events: open, tasks: tasks).write()
         } catch {
             lastError = "Couldn\u{2019}t write the daily summary: \(error.localizedDescription)"

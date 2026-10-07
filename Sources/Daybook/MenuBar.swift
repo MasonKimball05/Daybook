@@ -88,7 +88,7 @@ struct MenuBarPanel: View {
                     }
                     if !store.countdowns.isEmpty {
                         Text("Counting down").font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.top, 6)
-                        ForEach(store.countdowns.prefix(3)) { CountdownRow(item: $0) }
+                        ForEach(store.countdowns.prefix(3)) { CountdownRow(store: store, item: $0) }
                     }
                 }
             }
@@ -148,8 +148,20 @@ final class QuickAddPanel {
 
     static func hide() { panel?.orderOut(nil) }
 
+    /// The box's window. Escape reaches the window as `cancelOperation` even
+    /// when the text field doesn't pass it on, and clicking anywhere else takes
+    /// away key status (`resignKey`): either way, the box goes away.
     private final class KeyPanel: NSPanel {
         override var canBecomeKey: Bool { true }
+
+        override func cancelOperation(_ sender: Any?) {
+            orderOut(nil)
+        }
+
+        override func resignKey() {
+            super.resignKey()
+            orderOut(nil)
+        }
     }
 }
 
@@ -185,6 +197,15 @@ struct QuickAddBox: View {
             if !text.isEmpty, let due = parsed.due {
                 Text(QuickAddField.label(due, hasTime: parsed.hasTime)).font(.callout).foregroundStyle(.secondary)
             }
+            Button {
+                text = ""
+                close()
+            } label: {
+                Image(systemName: "xmark.circle.fill").font(.title3).foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help("Close (Esc)")
+            .accessibilityLabel("Close")
         }
         .padding(.horizontal, 16)
         .frame(width: 560, height: 64)

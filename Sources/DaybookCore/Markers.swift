@@ -9,6 +9,12 @@ public enum DaybookMarker: Equatable, Sendable {
     case done(eventID: String)
     case brief(date: String) // "2026-10-07"
     case ready(date: String)
+    /// A task made from a Canvas assignment (this one's on the task itself, in
+    /// whatever list it's in, not in the Daybook list).
+    case canvas(assignment: String)
+    /// The last 60 nights of sleep from Apple Health, which the iPhone posts so
+    /// the Mac has them too (the JSON is in the notes, after the marker).
+    case sleep
     /// An event's priority (calendar events have none of their own).
     case priority(eventID: String, level: Int)
 
@@ -25,6 +31,11 @@ public enum DaybookMarker: Equatable, Sendable {
         case .ready(let date):
             components.host = "ready"
             components.queryItems = [URLQueryItem(name: "date", value: date)]
+        case .sleep:
+            components.host = "sleep"
+        case .canvas(let assignment):
+            components.host = "canvas"
+            components.queryItems = [URLQueryItem(name: "assignment", value: assignment)]
         case .priority(let eventID, let level):
             components.host = "priority"
             components.queryItems = [URLQueryItem(name: "event", value: eventID), URLQueryItem(name: "level", value: String(level))]
@@ -40,6 +51,8 @@ public enum DaybookMarker: Equatable, Sendable {
         case "done": guard let id = value("event") else { return nil }; self = .done(eventID: id)
         case "brief": guard let date = value("date") else { return nil }; self = .brief(date: date)
         case "ready": guard let date = value("date") else { return nil }; self = .ready(date: date)
+        case "sleep": self = .sleep
+        case "canvas": guard let id = value("assignment") else { return nil }; self = .canvas(assignment: id)
         case "priority":
             guard let id = value("event"), let level = value("level").flatMap(Int.init) else { return nil }
             self = .priority(eventID: id, level: level)

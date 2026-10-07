@@ -114,10 +114,30 @@ struct Provider: AppIntentTimelineProvider {
             }
         }
         let horizon = calendar.date(byAdding: .day, value: Countdown.horizonDays, to: start)!
+        let finished = await finishedCanvas(store, daybookLists, since: calendar.date(byAdding: .day, value: -180, to: start)!)
         let ahead = store.events(matching: store.predicateForEvents(withStart: start, end: horizon, calendars: nil))
-            .map(EKConvert.item).filter { !done.contains($0.id) }
+            .map(EKConvert.item)
+            .filter { !done.contains($0.id) && Canvas.assignmentID($0.id).map(finished.contains) != true }
         let countdowns = Countdown.upcoming(ahead, priorities: priorities, now: now)
         return DayEntry(date: now, events: events, tasks: tasks, hasAccess: true, countdowns: countdowns)
+    }
+
+    /// Canvas assignments whose task has been checked off (by assignment number),
+    /// so a finished assignment stops counting down.
+    private static func finishedCanvas(_ store: EKEventStore, _ daybookLists: [EKCalendar], since: Date) async -> Set<String> {
+        guard EKEventStore.authorizationStatus(for: .reminder) == .fullAccess else { return [] }
+        let hidden = Set(daybookLists.map(\.calendarIdentifier))
+        let lists = store.calendars(for: .reminder).filter { !hidden.contains($0.calendarIdentifier) }
+        guard !lists.isEmpty else { return [] }
+        let predicate = store.predicateForCompletedReminders(withCompletionDateStarting: since, ending: nil, calendars: lists)
+        return await withCheckedContinuation { continuation in
+            store.fetchReminders(matching: predicate) { reminders in
+                let ids = (reminders ?? []).compactMap { reminder -> String? in
+                    if case .canvas(let id) = DaybookMarker(url: nil, notes: reminder.notes) { id } else { nil }
+                }
+                continuation.resume(returning: Set(ids))
+            }
+        }
     }
 
     /// Events marked done, and event priorities, from the Daybook list (see DaybookMarker).

@@ -16,6 +16,8 @@
 		53C70BFAADA38145D2E585B5 /* BriefNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C3CD99AA2E48E09C3875154 /* BriefNotifier.swift */; };
 		6B0099E65B51932808D3D599 /* DaybookWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58920288B9BB95E88DCF2DBC /* DaybookWidget.swift */; };
 		726E9FF95C1CFE933CE9914C /* DaybookCore in Frameworks */ = {isa = PBXBuildFile; productRef = CD54E913B6DA5FAF988AE49A /* DaybookCore */; };
+		7315CA1E1F0DE3F78F8EEE07 /* SleepReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 712999AD29526EC9C152305C /* SleepReader.swift */; };
+		7878882AC0EB17A34296F358 /* TimeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BCB786EAA419418BCC1E9CF /* TimeView.swift */; };
 		7B2169EB831224D5C91146EE /* CalendarStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EEE58F5E83F78568F2DC08F /* CalendarStore.swift */; };
 		93E33ECFD690EAF75EBA3F8E /* DaybookCore in Frameworks */ = {isa = PBXBuildFile; productRef = DE9EEE816989CAE0CFA54917 /* DaybookCore */; };
 		A780F8F1566799C42C2FE547 /* AlertScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 787CC7E15F1A861262AEE79D /* AlertScheduler.swift */; };
@@ -23,6 +25,7 @@
 		D31E72B666648C0B9E78D5F4 /* Views.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05C056F861015193682754DD /* Views.swift */; };
 		D371458FE3C223E51ED6D905 /* BriefView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B89BC77C2159A3CC3E777DB1 /* BriefView.swift */; };
 		D660AB7A169958480665350D /* Intents.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA916A4736BBB2B32D8E714F /* Intents.swift */; };
+		D768C4035C44FC837F45771A /* WorkCollector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 489080A02DA9A03DBFBA8DCF /* WorkCollector.swift */; };
 		E9AC68922F5DFDF402DD0948 /* MenuBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AFB3DDC1B842BA575794074 /* MenuBar.swift */; };
 /* End PBXBuildFile section */
 
@@ -57,10 +60,13 @@
 		37B53994303E2831C334871A /* daybook */ = {isa = PBXFileReference; lastKnownFileType = folder; name = daybook; path = .; sourceTree = SOURCE_ROOT; };
 		3CF36DDCC7921B3273D8CABE /* WeekGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeekGrid.swift; sourceTree = "<group>"; };
 		3FE2C1366995EC5886CEC190 /* EKConvert.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EKConvert.swift; sourceTree = "<group>"; };
+		489080A02DA9A03DBFBA8DCF /* WorkCollector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkCollector.swift; sourceTree = "<group>"; };
 		556ED4D54B38B3C209888739 /* DaybookWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = DaybookWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		58920288B9BB95E88DCF2DBC /* DaybookWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaybookWidget.swift; sourceTree = "<group>"; };
 		5AFB3DDC1B842BA575794074 /* MenuBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBar.swift; sourceTree = "<group>"; };
+		712999AD29526EC9C152305C /* SleepReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepReader.swift; sourceTree = "<group>"; };
 		787CC7E15F1A861262AEE79D /* AlertScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertScheduler.swift; sourceTree = "<group>"; };
+		8BCB786EAA419418BCC1E9CF /* TimeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeView.swift; sourceTree = "<group>"; };
 		A9E8A05E1DEF79482A06DCE1 /* DaybookiOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaybookiOSApp.swift; sourceTree = "<group>"; };
 		B051D2C72C63BB97FDFD585C /* Daybook-iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Daybook-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		B89BC77C2159A3CC3E777DB1 /* BriefView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BriefView.swift; sourceTree = "<group>"; };
@@ -142,6 +148,7 @@
 				A9E8A05E1DEF79482A06DCE1 /* DaybookiOSApp.swift */,
 				EA916A4736BBB2B32D8E714F /* Intents.swift */,
 				D6D1477FC970206BF267FD0F /* LeaveBy.swift */,
+				712999AD29526EC9C152305C /* SleepReader.swift */,
 			);
 			name = DaybookiOS;
 			path = Sources/DaybookiOS;
@@ -155,8 +162,10 @@
 				0EEE58F5E83F78568F2DC08F /* CalendarStore.swift */,
 				3FE2C1366995EC5886CEC190 /* EKConvert.swift */,
 				5AFB3DDC1B842BA575794074 /* MenuBar.swift */,
+				8BCB786EAA419418BCC1E9CF /* TimeView.swift */,
 				05C056F861015193682754DD /* Views.swift */,
 				3CF36DDCC7921B3273D8CABE /* WeekGrid.swift */,
+				489080A02DA9A03DBFBA8DCF /* WorkCollector.swift */,
 			);
 			name = Daybook;
 			path = Sources/Daybook;
@@ -273,8 +282,11 @@
 				D660AB7A169958480665350D /* Intents.swift in Sources */,
 				20F0206564113216E07D334D /* LeaveBy.swift in Sources */,
 				E9AC68922F5DFDF402DD0948 /* MenuBar.swift in Sources */,
+				7315CA1E1F0DE3F78F8EEE07 /* SleepReader.swift in Sources */,
+				7878882AC0EB17A34296F358 /* TimeView.swift in Sources */,
 				D31E72B666648C0B9E78D5F4 /* Views.swift in Sources */,
 				231F5BF442886BEF4A92CA6E /* WeekGrid.swift in Sources */,
+				D768C4035C44FC837F45771A /* WorkCollector.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -302,6 +314,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "Resources/Daybook-iOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = F4P3T9JYP2;
@@ -365,6 +378,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "Resources/Daybook-iOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = F4P3T9JYP2;

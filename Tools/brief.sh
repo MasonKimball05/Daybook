@@ -3,8 +3,8 @@
 # there to approve each action, so it runs only these, and each is approved once
 # ("Always allow") the first time.
 #
-#   brief.sh morning   refresh Mail and Daybook, then print today.md and mail.md
-#   brief.sh week      refresh Daybook, then print week.md
+#   brief.sh morning   refresh Mail and Daybook, then print today.md, mail.md, followups.md and work.md
+#   brief.sh week      refresh Daybook, then print week.md and time.md
 #   brief.sh check     embed the headline font, then render brief.html to brief-check.png
 #   brief.sh post      send brief.md to the iPhone, and leave Daybook open on the Mac
 set -u
@@ -24,14 +24,13 @@ case "${1:-}" in
     open -g -a Mail
     sleep 60
     # -n starts a separate copy that exports and quits, even if Daybook is open.
-    open -n -g -a Daybook --args --export --mail
-    sleep 15
-    show today.md mail.md
+    # -W waits for the export to finish (it checks Mail, your repos and GitHub).
+    open -n -W -g -a Daybook --args --export --mail
+    show today.md mail.md followups.md work.md bills.md
     ;;
   week)
-    open -n -g -a Daybook --args --export
-    sleep 10
-    show week.md
+    open -n -W -g -a Daybook --args --export
+    show week.md time.md
     ;;
   check)
     # The page names its headline font as url(__FRAUNCES__); put the real file in,

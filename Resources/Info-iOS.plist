@@ -24,6 +24,8 @@
 	<string>1</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Daybook shows all your calendars in one place.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Daybook reads your sleep from Health, so the weekly recap counts free time from when you woke to when you went to sleep.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Daybook works out travel time to events with a place, so it can tell you when to leave.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>

@@ -45,6 +45,8 @@ ipa:
 		-derivedDataPath $(CACHE)/ios CODE_SIGNING_ALLOWED=NO build -quiet
 	rm -rf $(CACHE)/ipa && mkdir -p $(CACHE)/ipa/Payload build
 	ditto $(CACHE)/ios/Build/Products/Release-iphoneos/Daybook.app $(CACHE)/ipa/Payload/Daybook.app
+	# Sign ad hoc with the entitlements (HealthKit), so SideStore sees them when it re-signs.
+	codesign --force --sign - --entitlements Resources/Daybook-iOS.entitlements $(CACHE)/ipa/Payload/Daybook.app
 	cd $(CACHE)/ipa && zip -qry Daybook.ipa Payload
 	mv $(CACHE)/ipa/Daybook.ipa build/Daybook.ipa
 	@echo "Built build/Daybook.ipa"
