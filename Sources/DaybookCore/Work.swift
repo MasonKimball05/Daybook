@@ -206,6 +206,36 @@ public enum Work {
             commits.filter { calendar.isDate($0.date, inSameDayAs: date) }.count
         }
 
+        // MARK: Sharing with the iPhone
+
+        /// The last `days` days, trimmed for a reminder's notes: short hashes and
+        /// first lines of commit messages. The whole file is ~90 KB; this, zipped, a few.
+        public func trimmed(days: Int = 63, now: Date = .now) -> Snapshot {
+            let since = now.addingTimeInterval(-Double(days) * 86400)
+            let commits = commits.filter { $0.date >= since }.map {
+                Commit(hash: $0.shortHash, repo: $0.repo, date: $0.date, message: String($0.message.prefix(80)),
+                       files: $0.files, insertions: $0.insertions, deletions: $0.deletions)
+            }
+            return Snapshot(gathered: gathered, commits: commits, activities: activities.filter { $0.date >= since }, problems: [])
+        }
+
+        /// JSON, zlib-compressed, as base64 text (notes only hold text).
+        public func encodedForSharing() -> String? {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            guard let json = try? encoder.encode(self),
+                  let zipped = try? (json as NSData).compressed(using: .zlib) else { return nil }
+            return (zipped as Data).base64EncodedString()
+        }
+
+        public static func decodeShared(_ text: String) -> Snapshot? {
+            guard let zipped = Data(base64Encoded: text.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  let json = try? (zipped as NSData).decompressed(using: .zlib) else { return nil }
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            return try? decoder.decode(Snapshot.self, from: json as Data)
+        }
+
         public static func read(from folder: URL = DailySummary.folder) -> Snapshot? {
             guard let data = try? Data(contentsOf: folder.appending(path: "work.json")) else { return nil }
             let decoder = JSONDecoder()

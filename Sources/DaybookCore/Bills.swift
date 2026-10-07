@@ -183,6 +183,37 @@ public enum Bills {
         return found.sorted { ($0.nextRenewal ?? .distantFuture, $0.merchant) < ($1.nextRenewal ?? .distantFuture, $1.merchant) }
     }
 
+    // MARK: Your corrections
+
+    /// What you've set by hand for a subscription; each field left nil keeps
+    /// what the emails said.
+    public struct Override: Codable, Sendable, Equatable {
+        public var amount: Double?
+        public var cadence: Cadence?
+        public var nextRenewal: Date?
+
+        public init(amount: Double? = nil, cadence: Cadence? = nil, nextRenewal: Date? = nil) {
+            self.amount = amount
+            self.cadence = cadence
+            self.nextRenewal = nextRenewal
+        }
+    }
+
+    /// A subscription with your corrections on top. A renewal date you set that
+    /// has passed rolls forward by the cadence, so it doesn't go stale.
+    public static func applying(_ override: Override?, to sub: Subscription, now: Date, calendar: Calendar = .current) -> Subscription {
+        guard let override else { return sub }
+        let cadence = override.cadence ?? sub.cadence
+        var next = override.nextRenewal ?? sub.nextRenewal
+        if let date = next, override.nextRenewal != nil, let cadence {
+            var rolled = date
+            while rolled < calendar.startOfDay(for: now) { rolled = calendar.date(byAdding: .day, value: cadence.days, to: rolled)! }
+            next = rolled
+        }
+        return Subscription(merchant: sub.merchant, amount: override.amount ?? sub.amount, cadence: cadence,
+                            lastCharged: sub.lastCharged, nextRenewal: next, charges: sub.charges)
+    }
+
     /// "$11.99"
     public static func dollars(_ value: Double) -> String {
         String(format: "$%.2f", value)
@@ -197,6 +228,11 @@ public enum Bills {
         public init(gathered: Date, subscriptions: [Subscription]) {
             self.gathered = gathered
             self.subscriptions = subscriptions
+        }
+
+        /// The same subscriptions with your corrections applied.
+        public func applying(_ overrides: [String: Override], now: Date = .now) -> Snapshot {
+            Snapshot(gathered: gathered, subscriptions: subscriptions.map { Bills.applying(overrides[$0.merchant], to: $0, now: now) })
         }
 
         public var monthlyTotal: Double { subscriptions.filter { $0.nextRenewal != nil }.compactMap(\.monthly).reduce(0, +) }

@@ -1,4 +1,5 @@
 import CoreGraphics
+import CryptoKit
 import DaybookCore
 @preconcurrency import EventKit
 import Foundation
@@ -49,16 +50,47 @@ final class CalendarStore {
     /// Emails waiting on a reply (Mac only: read from followups.json, which the
     /// morning export writes).
     private(set) var waiting: [FollowUps.Waiting] = []
-    /// Coding work: commits and GitHub activity (Mac only, see WorkCollector).
+    /// Coding work: commits and GitHub activity, gathered on the Mac (see
+    /// WorkCollector) and shared with the iPhone through the Daybook list.
     private(set) var work: Work.Snapshot? {
         didSet { workSessions = work?.sessions ?? [] }
     }
     /// Nights of sleep, from Apple Health: read on the iPhone (SleepReader) and
     /// shared through the Daybook list, so the Mac has them too.
     private(set) var sleepNights: [Sleep.Night] = []
+    /// What happened the last time the iPhone read Health, for the Time tab.
+    var sleepStatus: String?
 
     /// Subscriptions found in billing emails (Mac only; see BillReader).
     private(set) var bills: Bills.Snapshot?
+
+    /// Your corrections to subscriptions, by merchant (saved on this Mac).
+    static var billOverrides: [String: Bills.Override] {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: "billOverrides") else { return [:] }
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            return (try? decoder.decode([String: Bills.Override].self, from: data)) ?? [:]
+        }
+        set {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            UserDefaults.standard.set(try? encoder.encode(newValue), forKey: "billOverrides")
+        }
+    }
+
+    /// Saves your amount, cadence and renewal date for a subscription, and
+    /// rewrites bills.json / bills.md so the brief sees them too.
+    func editBill(_ merchant: String, amount: Double?, cadence: Bills.Cadence?, nextRenewal: Date?) {
+        var overrides = Self.billOverrides
+        overrides[merchant] = Bills.Override(amount: amount, cadence: cadence, nextRenewal: nextRenewal)
+        Self.billOverrides = overrides
+        if let saved = Bills.Snapshot.read() {
+            let updated = saved.applying(overrides)
+            try? updated.write()
+            bills = updated
+        }
+    }
 
     /// The merchant behind a renewal in the countdowns ("bill-Spotify@…"), or nil.
     func billMerchant(_ item: AgendaItem) -> String? {
@@ -263,6 +295,11 @@ final class CalendarStore {
                 // The iPhone's own reading from Health is fresher; don't replace it with an older copy.
                 if nights.count >= sleepNights.count || sleepNights.isEmpty { sleepNights = nights }
             }
+            #if os(iOS)
+            if let shared = entries.first(where: { $0.marker == .work }), let snapshot = Work.Snapshot.decodeShared(shared.body) {
+                work = snapshot
+            }
+            #endif
             briefs = entries.compactMap { entry in
                 if case .brief(let date) = entry.marker { PostedBrief(date: date, markdown: entry.body, version: entry.reminderID) } else { nil }
             }.sorted { $0.date > $1.date }
@@ -271,7 +308,7 @@ final class CalendarStore {
         #if os(macOS)
         if reminderAccess == .granted && eventAccess == .granted { await syncCanvas() }
         if work == nil { work = Work.Snapshot.read() }
-        bills = Bills.Snapshot.read()
+        bills = Bills.Snapshot.read()?.applying(Self.billOverrides)
         let dismissed = FollowUpReader.dismissed
         waiting = FollowUps.read().filter { !dismissed.contains($0.id) }
         #endif
@@ -476,7 +513,14 @@ final class CalendarStore {
     func updateSleep(_ nights: [Sleep.Night]) async {
         sleepNights = nights
         let json = Sleep.encode(nights)
-        guard json != UserDefaults.standard.string(forKey: "postedSleep"), let list = doneMarksList(create: true) else { return }
+        guard json != UserDefaults.standard.string(forKey: "postedSleep") else {
+            sleepStatus = "\(nights.count) nights from Health, shared with the Mac."
+            return
+        }
+        guard let list = doneMarksList(create: true) else {
+            sleepStatus = "\(nights.count) nights from Health, but the Daybook list in Reminders isn\u{2019}t there to share them."
+            return
+        }
         await remove { $0 == .sleep }
         let reminder = EKReminder(eventStore: store)
         reminder.calendar = list
@@ -484,8 +528,12 @@ final class CalendarStore {
         reminder.url = DaybookMarker.sleep.url
         reminder.notes = DaybookMarker.sleep.url.absoluteString + "\n\n" + json
         reminder.isCompleted = true
-        if (try? store.save(reminder, commit: true)) != nil {
+        do {
+            try store.save(reminder, commit: true)
             UserDefaults.standard.set(json, forKey: "postedSleep")
+            sleepStatus = "\(nights.count) nights from Health, shared with the Mac."
+        } catch {
+            sleepStatus = "\(nights.count) nights from Health; sharing with the Mac failed: \(error.localizedDescription)"
         }
     }
 
@@ -551,6 +599,30 @@ final class CalendarStore {
         try? snapshot.write()
         work = snapshot
         exportWork()
+        await shareWork(snapshot)
+    }
+
+    /// Posts the last nine weeks of work to the Daybook list for the iPhone,
+    /// when it's changed since the last post.
+    private func shareWork(_ snapshot: Work.Snapshot) async {
+        guard reminderAccess == .granted else { return }
+        let trimmed = snapshot.trimmed()
+        // Compare without the gathered time, which changes on every refresh.
+        let digest = SHA256.hash(data: Data("\(trimmed.commits.map(\.hash))|\(trimmed.activities.map(\.id))".utf8))
+        let key = digest.map { String(format: "%02x", $0) }.joined()
+        guard let text = trimmed.encodedForSharing(),
+              key != UserDefaults.standard.string(forKey: "postedWork"),
+              let list = doneMarksList(create: true) else { return }
+        await remove { $0 == .work }
+        let reminder = EKReminder(eventStore: store)
+        reminder.calendar = list
+        reminder.title = "Coding work from the Mac"
+        reminder.url = DaybookMarker.work.url
+        reminder.notes = DaybookMarker.work.url.absoluteString + "\n\n" + text
+        reminder.isCompleted = true
+        if (try? store.save(reminder, commit: true)) != nil {
+            UserDefaults.standard.set(key, forKey: "postedWork")
+        }
     }
 
     func refreshWorkIfStale() async {
@@ -874,7 +946,7 @@ final class CalendarStore {
             switch marker {
             case .brief(let day): day == key || day < cutoff
             case .ready: true // from an older version, which alerted through Reminders
-            case .done, .priority, .canvas, .sleep: false
+            case .done, .priority, .canvas, .sleep, .work: false
             }
         }
         let reminder = EKReminder(eventStore: store)

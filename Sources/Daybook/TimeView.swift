@@ -41,6 +41,11 @@ struct TimeView: View {
                 if !report.byRepo.isEmpty {
                     Breakdown(title: "Coding by repo", rows: report.byRepo.map { ($0.name, $0.hours, codingColor) })
                 }
+                #if os(iOS)
+                if let status = store.sleepStatus {
+                    Label(status, systemImage: "bed.double").font(.caption).foregroundStyle(.secondary)
+                }
+                #endif
                 if !report.activities.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Shipped on GitHub").font(.headline)

@@ -279,7 +279,8 @@ enum BillReader {
     static func refresh() {
         guard case .success(let emails) = BillReader.emails() else { return }
         let subscriptions = Bills.subscriptions(emails, now: .now, ignored: ignored)
-        try? Bills.Snapshot(gathered: .now, subscriptions: subscriptions).write()
+        // Your corrections (amount, cadence, renewal date) win over what the emails said.
+        try? Bills.Snapshot(gathered: .now, subscriptions: subscriptions).applying(CalendarStore.billOverrides).write()
     }
 
     /// Merchants Mason said aren't subscriptions ("Not a Subscription").

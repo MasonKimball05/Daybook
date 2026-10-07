@@ -690,6 +690,17 @@ func event(_ title: String, _ start: Date, _ end: Date, allDay: Bool = false, ca
         Bills.Email(merchant: merchant, subject: "Receipt", date: date, amount: amount, renews: renews)
     }
 
+    @Test func yourCorrectionsWin() {
+        let found = Bills.Subscription(merchant: "Gym", amount: 30, cadence: .monthly, lastCharged: at(9, 10),
+                                       nextRenewal: at(10, 10), charges: 3)
+        let fixed = Bills.applying(.init(amount: 25), to: found, now: now, calendar: cal)
+        #expect(fixed.amount == 25 && fixed.cadence == .monthly && fixed.nextRenewal == at(10, 10))
+        // A date set a while ago rolls forward a cycle at a time, past today.
+        let rolled = Bills.applying(.init(nextRenewal: at(9, 1)), to: found, now: now, calendar: cal)
+        #expect(rolled.nextRenewal.map { cal.isDate($0, inSameDayAs: at(10, 31)) } == true)
+        #expect(Bills.applying(nil, to: found, now: now, calendar: cal) == found)
+    }
+
     @Test func findsSubscriptionsByRhythm() {
         let emails = [
             email("Spotify", at(7, 10), 11.99), email("Spotify", at(8, 10), 11.99), email("Spotify", at(9, 10), 11.99),
@@ -727,14 +738,18 @@ func event(_ title: String, _ start: Date, _ end: Date, allDay: Bool = false, ca
         let nights = Sleep.nights(samples)
         #expect(nights.count == 2)
         #expect(nights[0].start == at(10, 5, 23) && nights[0].end == at(10, 6, 7))
-        #expect(nights[0].asleep == 3 * 3600 + 4 * 3600 + 40 * 60) // 11-2 and 2:20-7
-        #expect(nights[1].asleep == 7 * 3600)
+        // Typed constants: long literal sums inside #expect are slow for older compilers to type-check.
+        let firstNight: TimeInterval = (7 * 60 + 40) * 60 // 11-2 and 2:20-7
+        let secondNight: TimeInterval = 7 * 3600
+        #expect(nights[0].asleep == firstNight)
+        #expect(nights[1].asleep == secondNight)
         #expect(Sleep.decode(Sleep.encode(nights)) == nights)
     }
 
     @Test func inBedOnlyStillMakesANight() {
         let nights = Sleep.nights([sample(at(10, 5, 23), at(10, 6, 7), asleep: false)])
-        #expect(nights.map(\.asleep) == [8 * 3600])
+        let eightHours: TimeInterval = 8 * 3600
+        #expect(nights.map(\.asleep) == [eightHours])
     }
 
     @Test func freeTimeRunsFromWakingToSleeping() {
@@ -784,5 +799,21 @@ func event(_ title: String, _ start: Date, _ end: Date, allDay: Bool = false, ca
         #expect(DaybookLink(URL(string: "daybook://log?title=Study&start=2026-10-07T04:00:00Z&end=2026-10-07T03:00:00Z")!) == nil)
         #expect(DaybookLink(URL(string: "daybook://delete-everything")!) == nil)
         #expect(DaybookLink(URL(string: "https://add-task?text=x")!) == nil)
+    }
+
+    @Test func workSharedWithTheIPhoneSurvivesTheTrip() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let old = Work.Commit(hash: String(repeating: "a", count: 40), repo: "hop", date: now.addingTimeInterval(-100 * 86400), message: "Old")
+        let recent = Work.Commit(hash: String(repeating: "b", count: 40), repo: "sift", date: now.addingTimeInterval(-3600),
+                                 message: String(repeating: "x", count: 200), files: 2, insertions: 10, deletions: 1)
+        let snapshot = Work.Snapshot(gathered: now, commits: [old, recent], activities: [], problems: ["ignored"])
+        let trimmed = snapshot.trimmed(now: now)
+        let text = try #require(trimmed.encodedForSharing())
+        let back = try #require(Work.Snapshot.decodeShared(text))
+        #expect(back.commits.map(\.hash) == ["bbbbbbb"])
+        #expect(back.commits[0].message.count == 80)
+        #expect(back.commits[0].insertions == 10)
+        #expect(back.problems.isEmpty)
+        #expect(Work.Snapshot.decodeShared("not base64") == nil)
     }
 }

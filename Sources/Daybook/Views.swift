@@ -651,6 +651,7 @@ struct CountdownRow: View {
     let store: CalendarStore
     let item: AgendaItem
     @State private var showingDetails = false
+    @State private var editingBill = false
 
     var body: some View {
         let done = store.isDone(item)
@@ -672,6 +673,11 @@ struct CountdownRow: View {
         .popover(isPresented: $showingDetails, arrowEdge: .trailing) {
             EventDetailView(store: store, item: item).frame(width: 380).frame(maxHeight: 620)
         }
+        .popover(isPresented: $editingBill, arrowEdge: .trailing) {
+            if let merchant = store.billMerchant(item), let sub = store.bills?.subscriptions.first(where: { $0.merchant == merchant }) {
+                BillEditor(store: store, sub: sub)
+            }
+        }
         #else
         .sheet(isPresented: $showingDetails) {
             NavigationStack {
@@ -686,6 +692,9 @@ struct CountdownRow: View {
         .contextMenu {
             Button(done ? "Mark Not Done" : "Mark Done") { store.setDone(item, !done) }
             if let merchant = store.billMerchant(item) {
+                #if os(macOS)
+                Button("Edit Subscription\u{2026}") { editingBill = true }
+                #endif
                 // Cancelled, or not a subscription at all: stop tracking it.
                 Button("Remove Subscription", role: .destructive) { store.ignoreBill(merchant) }
             } else {
@@ -1502,6 +1511,7 @@ struct TaskDetailView: View {
 struct SubscriptionRow: View {
     let store: CalendarStore
     let sub: Bills.Subscription
+    @State private var editing = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -1514,6 +1524,10 @@ struct SubscriptionRow: View {
             if let next = sub.nextRenewal {
                 Text(Countdown.label(until: next, now: .now)).font(.callout.monospacedDigit()).foregroundStyle(.secondary)
             }
+            Button("Edit") { editing = true }
+                .controlSize(.small)
+                .buttonStyle(.bordered)
+                .popover(isPresented: $editing, arrowEdge: .trailing) { BillEditor(store: store, sub: sub) }
             Button("Remove") { store.ignoreBill(sub.merchant) }
                 .controlSize(.small)
                 .buttonStyle(.bordered)
@@ -1531,6 +1545,70 @@ struct SubscriptionRow: View {
             parts.append("no charge lately, may be cancelled")
         }
         return parts.joined(separator: " \u{00B7} ")
+    }
+}
+
+/// Sets a subscription's amount, how often it bills, and its next renewal, when
+/// the emails got it wrong or didn't say.
+struct BillEditor: View {
+    let store: CalendarStore
+    let sub: Bills.Subscription
+    @State private var amount: String
+    @State private var cadence: Bills.Cadence
+    @State private var hasDate: Bool
+    @State private var next: Date
+    @Environment(\.dismiss) private var dismiss
+
+    init(store: CalendarStore, sub: Bills.Subscription) {
+        self.store = store
+        self.sub = sub
+        _amount = State(initialValue: sub.amount.map { String(format: "%.2f", $0) } ?? "")
+        _cadence = State(initialValue: sub.cadence ?? .monthly)
+        _hasDate = State(initialValue: sub.nextRenewal != nil)
+        _next = State(initialValue: sub.nextRenewal ?? Calendar.current.startOfDay(for: .now))
+    }
+
+    /// "$11.99", "11.99" or "1,299" -> the number.
+    private var parsedAmount: Double? {
+        Double(amount.replacingOccurrences(of: "$", with: "").replacingOccurrences(of: ",", with: "").trimmingCharacters(in: .whitespaces))
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("Amount", text: $amount, prompt: Text("11.99"))
+                Picker("Bills", selection: $cadence) {
+                    Text("Weekly").tag(Bills.Cadence.weekly)
+                    Text("Monthly").tag(Bills.Cadence.monthly)
+                    Text("Every 3 months").tag(Bills.Cadence.quarterly)
+                    Text("Yearly").tag(Bills.Cadence.yearly)
+                }
+                Toggle("Next renewal", isOn: $hasDate)
+                if hasDate {
+                    DatePicker("Renews on", selection: $next, displayedComponents: .date)
+                }
+            } header: {
+                Text(sub.merchant)
+            } footer: {
+                Text("Your changes win over what Daybook reads in the emails, and stay after the weekly scan. A renewal date rolls forward on its own each cycle.")
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 340)
+        .safeAreaInset(edge: .bottom) {
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button("Save") {
+                    store.editBill(sub.merchant, amount: parsedAmount, cadence: cadence, nextRenewal: hasDate ? next : nil)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .disabled(!amount.isEmpty && parsedAmount == nil)
+            }
+            .padding(12)
+        }
     }
 }
 
