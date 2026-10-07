@@ -23,7 +23,10 @@ enum EKConvert {
                         due: components.flatMap { Calendar.current.date(from: $0) },
                         dueHasTime: components?.hour != nil, list: reminder.calendar?.title ?? "Reminders",
                         isCompleted: reminder.isCompleted, priority: Priority(reminderPriority: reminder.priority),
-                        repeats: reminder.hasRecurrenceRules)
+                        repeats: reminder.hasRecurrenceRules,
+                        alarms: (reminder.alarms ?? []).compactMap { alarm in
+                            alarm.absoluteDate ?? components.flatMap { Calendar.current.date(from: $0) }?.addingTimeInterval(alarm.relativeOffset)
+                        })
     }
 
     static func hex(_ color: CGColor?) -> String {

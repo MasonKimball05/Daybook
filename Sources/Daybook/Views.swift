@@ -1148,6 +1148,7 @@ struct TaskRow: View {
                         if task.dueHasTime { Text(due.formatted(date: .omitted, time: .shortened)) }
                     }
                     if task.repeats { Image(systemName: "repeat").accessibilityLabel("Repeats") }
+                    if !task.alarms.isEmpty { Image(systemName: "bell").accessibilityLabel("Has reminders") }
                     Text(task.list)
                 }
                 .font(.caption)
@@ -1193,6 +1194,8 @@ struct TaskDetailView: View {
     let task: TaskItem
     @State private var draft: CalendarStore.TaskDraft
     @State private var askingDelete = false
+    @State private var pickingAlarm = false
+    @State private var alarmDate = Date.now.addingTimeInterval(3600)
     @Environment(\.dismiss) private var dismiss
 
     init(store: CalendarStore, task: TaskItem) {
@@ -1228,6 +1231,52 @@ struct TaskDetailView: View {
                     Picker("Repeat", selection: $draft.repeats) {
                         ForEach(CalendarStore.Repeat.allCases) { Text($0.rawValue).tag($0) }
                     }
+                }
+                Section {
+                    ForEach(draft.alarms, id: \.self) { alarm in
+                        HStack {
+                            Label(alarm.label, systemImage: "bell")
+                            Spacer()
+                            Button { draft.alarms.removeAll { $0 == alarm } } label: { Image(systemName: "minus.circle.fill") }
+                                .buttonStyle(.borderless)
+                                .foregroundStyle(.red)
+                                .accessibilityLabel("Remove reminder")
+                        }
+                    }
+                    Menu {
+                        if draft.due != nil {
+                            ForEach([0, 5, 15, 30, 60, 180, 1440, 2880, 10080], id: \.self) { minutes in
+                                let alarm = CalendarStore.TaskAlarm.before(minutes: minutes)
+                                Button(alarm.label) { if !draft.alarms.contains(alarm) { draft.alarms.append(alarm) } }
+                            }
+                            Divider()
+                        }
+                        Button("Pick a Date and Time\u{2026}") {
+                            alarmDate = draft.due.map { $0.addingTimeInterval(-3600) } ?? .now.addingTimeInterval(3600)
+                            pickingAlarm = true
+                        }
+                    } label: {
+                        Label("Add Reminder", systemImage: "bell.badge")
+                    }
+                    if pickingAlarm {
+                        DatePicker("Remind me", selection: $alarmDate)
+                        HStack {
+                            Button("Cancel") { pickingAlarm = false }
+                            Spacer()
+                            Button("Add") {
+                                draft.alarms.append(.at(alarmDate))
+                                pickingAlarm = false
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                } header: {
+                    Text("Reminders")
+                } footer: {
+                    Text(draft.due == nil
+                         ? "Give the task a date to be reminded before it, or pick an exact time."
+                         : "Saved in Reminders, so they go off on every device, even when Daybook isn\u{2019}t open. For a task with no time, \u{201C}before\u{201D} counts back from 9 AM.")
                 }
                 Section {
                     Picker("Priority", selection: $draft.priority) {

@@ -284,6 +284,19 @@ final class CalendarStore {
         var id: String { rawValue }
     }
 
+    /// One of a task's own Reminders alerts.
+    enum TaskAlarm: Hashable {
+        case before(minutes: Int)  // before the due time (0 is "at the due time")
+        case at(Date)
+
+        var label: String {
+            switch self {
+            case .before(let minutes): minutes == 0 ? "At the due time" : AlertSettings.describe(minutes)
+            case .at(let date): date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().hour().minute())
+            }
+        }
+    }
+
     struct TaskDraft: Equatable {
         var title = ""
         var notes = ""
@@ -293,6 +306,7 @@ final class CalendarStore {
         var hasTime = false
         var priority = Priority.none
         var repeats = Repeat.never
+        var alarms: [TaskAlarm] = []
     }
 
     /// Reminders lists a task can be in (not Daybook's hidden one).
@@ -308,7 +322,10 @@ final class CalendarStore {
         guard let reminder = store.calendarItem(withIdentifier: task.id) as? EKReminder else { return nil }
         return TaskDraft(title: reminder.title ?? "", notes: reminder.notes ?? "", link: reminder.url?.absoluteString ?? "",
                          listID: reminder.calendar?.calendarIdentifier ?? "", due: task.due, hasTime: task.dueHasTime,
-                         priority: task.priority, repeats: Self.repeatKind(reminder.recurrenceRules?.first))
+                         priority: task.priority, repeats: Self.repeatKind(reminder.recurrenceRules?.first),
+                         alarms: (reminder.alarms ?? []).map { alarm in
+                             alarm.absoluteDate.map(TaskAlarm.at) ?? .before(minutes: Int((-alarm.relativeOffset / 60).rounded()))
+                         })
     }
 
     @discardableResult
@@ -325,6 +342,7 @@ final class CalendarStore {
         Self.setDue(due, hasTime: draft.hasTime, on: reminder)
         for rule in reminder.recurrenceRules ?? [] { reminder.removeRecurrenceRule(rule) }
         if let rule = Self.rule(draft.repeats) { reminder.addRecurrenceRule(rule) }
+        Self.setAlarms(draft.alarms, due: due, hasTime: draft.hasTime, on: reminder)
         do {
             try store.save(reminder, commit: true)
             lastError = nil
@@ -350,6 +368,28 @@ final class CalendarStore {
         Task { await reload() }
     }
 
+    /// Replaces a task's own alerts. "Before" alerts follow the due time; on a task
+    /// with a day but no time they count back from 9 AM that day (not midnight), so
+    /// those are saved as exact times.
+    private static func setAlarms(_ alarms: [TaskAlarm], due: Date?, hasTime: Bool, on reminder: EKReminder) {
+        for alarm in reminder.alarms ?? [] { reminder.removeAlarm(alarm) }
+        let hour = AlertSettings(enabled: true).allDayHour
+        for alarm in Set(alarms) {
+            switch alarm {
+            case .at(let date):
+                reminder.addAlarm(EKAlarm(absoluteDate: date))
+            case .before(let minutes):
+                guard let due else { continue } // nothing to count back from
+                if hasTime {
+                    // Relative to the due time, so it moves with the task if the date changes.
+                    reminder.addAlarm(EKAlarm(relativeOffset: -Double(minutes) * 60))
+                } else if let morning = Calendar.current.date(bySettingHour: hour, minute: 0, second: 0, of: due) {
+                    reminder.addAlarm(EKAlarm(absoluteDate: morning.addingTimeInterval(-Double(minutes) * 60)))
+                }
+            }
+        }
+    }
+
     /// A deleted task, back as a new reminder with the same details.
     private func restore(_ draft: TaskDraft) {
         let reminder = EKReminder(eventStore: store)
@@ -360,6 +400,7 @@ final class CalendarStore {
         reminder.priority = draft.priority.reminderPriority
         Self.setDue(draft.due, hasTime: draft.hasTime, on: reminder)
         if let rule = Self.rule(draft.repeats) { reminder.addRecurrenceRule(rule) }
+        Self.setAlarms(draft.alarms, due: draft.due, hasTime: draft.hasTime, on: reminder)
         save(reminder)
     }
 

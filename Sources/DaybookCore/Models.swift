@@ -48,9 +48,11 @@ public struct TaskItem: Hashable, Identifiable, Sendable, Codable {
     public let isCompleted: Bool
     public let priority: Priority
     public let repeats: Bool
+    /// When the task's own Reminders alerts go off.
+    public let alarms: [Date]
 
     public init(id: String, title: String, due: Date?, dueHasTime: Bool = false, list: String = "Reminders",
-                isCompleted: Bool = false, priority: Priority = .none, repeats: Bool = false) {
+                isCompleted: Bool = false, priority: Priority = .none, repeats: Bool = false, alarms: [Date] = []) {
         self.id = id
         self.title = title
         self.due = due
@@ -59,6 +61,7 @@ public struct TaskItem: Hashable, Identifiable, Sendable, Codable {
         self.isCompleted = isCompleted
         self.priority = priority
         self.repeats = repeats
+        self.alarms = alarms
     }
 
     public func isOverdue(now: Date, calendar: Calendar) -> Bool {

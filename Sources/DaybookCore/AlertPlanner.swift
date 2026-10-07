@@ -90,10 +90,13 @@ public enum AlertPlanner {
         let horizon = calendar.date(byAdding: .day, value: days, to: now)!
         var alerts: [PlannedAlert] = []
 
-        func add(id: String, title: String, priority: Priority, at time: Date, timed: Bool, offsets: [Int], label: (Int) -> String) {
+        func add(id: String, title: String, priority: Priority, at time: Date, timed: Bool, offsets: [Int],
+                 own: [Date] = [], label: (Int) -> String) {
             for offset in Set(offsets) {
                 let fire = time.addingTimeInterval(-Double(offset) * 60)
                 guard fire > now, fire < horizon else { continue }
+                // The task's own Reminders alert already covers this moment.
+                if own.contains(where: { abs($0.timeIntervalSince(fire)) < 60 }) { continue }
                 alerts.append(PlannedAlert(id: "alert-\(id)-\(offset)", title: Self.title(title, priority),
                                            body: label(offset), date: fire))
             }
@@ -114,7 +117,8 @@ public enum AlertPlanner {
             guard let due = task.due else { continue }
             let time = task.dueHasTime ? due : calendar.date(bySettingHour: settings.allDayHour, minute: 0, second: 0, of: due)!
             let offsets = task.priority.isImportant ? settings.importantOffsets : settings.normalTaskOffset.map { [$0] } ?? []
-            add(id: task.id, title: task.title, priority: task.priority, at: time, timed: task.dueHasTime, offsets: offsets) { offset in
+            add(id: task.id, title: task.title, priority: task.priority, at: time, timed: task.dueHasTime, offsets: offsets,
+                own: task.alarms) { offset in
                 offset == 0 ? "Due now" : "Due in \(Self.lead(offset))"
             }
             // Urgent: keep at it after the due time until it's checked off.

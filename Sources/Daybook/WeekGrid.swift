@@ -33,8 +33,10 @@ struct WeekGridView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            dayHeaders
-            allDayStrip
+            // Natural height only: without this the rows above the grid stretch to
+            // take half the window.
+            dayHeaders.fixedSize(horizontal: false, vertical: true)
+            allDayStrip.fixedSize(horizontal: false, vertical: true)
             Divider()
             ScrollViewReader { proxy in
                 ScrollView {
@@ -77,7 +79,7 @@ struct WeekGridView: View {
 
     private var dayHeaders: some View {
         HStack(spacing: 0) {
-            Color.clear.frame(width: Self.gutter)
+            Color.clear.frame(width: Self.gutter, height: 1)
             ForEach(days, id: \.self) { day in
                 let today = Calendar.current.isDateInToday(day)
                 VStack(spacing: 2) {

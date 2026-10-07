@@ -24,13 +24,15 @@ func event(_ title: String, _ start: Date, _ end: Date, allDay: Bool = false, ca
         #expect(parsed.title == "submit report")
         #expect(parsed.hasTime)
         let due = try #require(parsed.due)
-        #expect(cal.component(.weekday, from: due) == 6) // Friday
-        #expect(cal.component(.hour, from: due) == 15)
+        // NSDataDetector reads "3pm" in the machine's own time zone (UTC on GitHub's
+        // runners), so check it in that zone rather than the tests' Chicago one.
+        #expect(Calendar.current.component(.weekday, from: due) == 6) // Friday
+        #expect(Calendar.current.component(.hour, from: due) == 15)
     }
 
     @Test func dayOnlyHasNoTime() {
-        let parsed = QuickAdd.parse("email Dr. Garay by tomorrow", now: now)
-        #expect(parsed.title == "email Dr. Garay")
+        let parsed = QuickAdd.parse("email Dr. Smith by tomorrow", now: now)
+        #expect(parsed.title == "email Dr. Smith")
         #expect(parsed.due != nil)
         #expect(!parsed.hasTime)
     }
@@ -385,6 +387,15 @@ func event(_ title: String, _ start: Date, _ end: Date, allDay: Bool = false, ca
         let alerts = AlertPlanner.plan(events: [], tasks: [open, done], settings: settings, now: now, calendar: cal)
         #expect(alerts.map(\.title) == ["Laundry"])
         #expect(alerts.map(\.date) == [at(10, 7, 9)])
+    }
+
+    @Test func skipsMomentsTheTaskAlreadyAlertsAt() {
+        // High: Daybook would alert 1 day, 1 hour and 15 minutes before, and at the time.
+        // The task's own Reminders alerts cover 1 hour before and the due time.
+        let task = TaskItem(id: "t", title: "Essay", due: at(10, 9, 17), dueHasTime: true, priority: .high,
+                            alarms: [at(10, 9, 16), at(10, 9, 17)])
+        let alerts = AlertPlanner.plan(events: [], tasks: [task], settings: settings, now: now, calendar: cal)
+        #expect(alerts.map(\.date) == [at(10, 8, 17), at(10, 9, 16, 45)])
     }
 
     @Test func olderSavedSettingsStillLoad() throws {
