@@ -1,0 +1,76 @@
+# The iPhone app. Generate the Xcode project with: xcodegen generate
+# (The Mac app builds with `make`, from Package.swift.)
+name: Daybook
+options:
+  deploymentTarget:
+    iOS: "26.0"
+packages:
+  DaybookKit:
+    path: .
+targets:
+  Daybook-iOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/DaybookiOS
+      # Shared with the Mac app. main.swift and MailReader are Mac-only.
+      - path: Sources/Daybook
+        excludes:
+          - main.swift
+          - MailReader.swift
+      - path: Resources/Assets.xcassets
+    dependencies:
+      - package: DaybookKit
+        product: DaybookCore
+      - target: DaybookWidget
+    # XcodeGen writes this plist from the properties below on every generate,
+    # so changes belong here, not in the plist itself.
+    info:
+      path: Resources/Info-iOS.plist
+      properties:
+        NSCalendarsFullAccessUsageDescription: Daybook shows all your calendars in one place.
+        NSRemindersFullAccessUsageDescription: Daybook keeps your tasks and done marks in Reminders so they sync with your Mac.
+        UILaunchScreen: {}
+        # Lets iOS wake Daybook now and then to look for the morning brief.
+        UIBackgroundModes: [fetch]
+        BGTaskSchedulerPermittedIdentifiers: [com.masonkimball.Daybook.refresh]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.masonkimball.Daybook
+        PRODUCT_NAME: Daybook
+        # My personal (free) team. Xcode signs automatically when I run it on my iPhone.
+        DEVELOPMENT_TEAM: F4P3T9JYP2
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+
+  # The home screen and lock screen widget, embedded in the iPhone app.
+  DaybookWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Sources/DaybookWidget
+      - path: Sources/Daybook/EKConvert.swift
+    dependencies:
+      - package: DaybookKit
+        product: DaybookCore
+    info:
+      path: Resources/Info-Widget.plist
+      properties:
+        CFBundleDisplayName: Daybook
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+        NSCalendarsFullAccessUsageDescription: Daybook shows all your calendars in one place.
+        NSRemindersFullAccessUsageDescription: Daybook keeps your tasks and done marks in Reminders so they sync with your Mac.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.masonkimball.Daybook.Widget
+        PRODUCT_NAME: DaybookWidget
+        DEVELOPMENT_TEAM: F4P3T9JYP2
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES

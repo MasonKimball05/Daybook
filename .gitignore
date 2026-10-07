@@ -1,0 +1,10 @@
+.build/
+.swiftpm/
+.DS_Store
+
+build/
+
+# Xcode per-user state
+xcuserdata/
+# Built icon set (make icon makes and removes it)
+Resources/AppIcon.iconset/
