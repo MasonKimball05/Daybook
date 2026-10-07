@@ -8,10 +8,11 @@ struct ContentView: View {
     #if os(macOS)
     @State private var showingBrief = false
     @State private var addingEvent = false
+    @State private var planning = false
     #endif
 
     enum Tab: String, CaseIterable, Identifiable {
-        case today = "Today", week = "Week", month = "Month", tasks = "Tasks"
+        case today = "Today", week = "Week", month = "Month", agenda = "Agenda", tasks = "Tasks"
         var id: String { rawValue }
     }
 
@@ -22,7 +23,12 @@ struct ContentView: View {
             } else if store.eventAccess == .granted || store.reminderAccess == .granted {
                 switch tab {
                 case .today: DayListView(store: store, start: .now, days: 1)
+                #if os(macOS)
+                case .week: WeekGridView(store: store)
+                #else
                 case .week: DayListView(store: store, start: .now, days: 7)
+                #endif
+                case .agenda: DayListView(store: store, start: .now, days: 7)
                 case .month: MonthView(store: store)
                 case .tasks: TasksView(store: store)
                 }
@@ -40,9 +46,13 @@ struct ContentView: View {
                     ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 300)
+                .frame(width: 380)
             }
             #if os(macOS)
+            ToolbarItem {
+                Button { planning = true } label: { Label("Plan My Day", systemImage: "wand.and.stars") }
+                    .help("Fit today\u{2019}s tasks into your free time")
+            }
             ToolbarItem {
                 Button { addingEvent = true } label: { Label("New Event", systemImage: "calendar.badge.plus") }
                     .keyboardShortcut("n")
@@ -65,10 +75,12 @@ struct ContentView: View {
         #if os(macOS)
         .sheet(isPresented: $showingBrief) { BriefSheet().onAppear { store.briefSeen() } }
         .sheet(isPresented: $addingEvent) { EventEditor(store: store) }
+        .sheet(isPresented: $planning) { PlanDayView(store: store) }
         // A new brief pops up once: on launch, or the next time Daybook comes to the front.
         .onAppear(perform: showNewBrief)
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in showNewBrief() }
         #endif
+        .overlay(alignment: .bottom) { UndoBanner(store: store).animation(.snappy, value: store.undoAction?.id) }
         .overlay(alignment: .bottom) {
             if let error = store.lastError {
                 Text(error)
@@ -104,6 +116,11 @@ struct DayListView: View {
         List {
             if days == 1 && showsQuickAdd {
                 QuickAddField(store: store, defaultDate: quickAddDate)
+            }
+            if isToday && !store.countdowns.isEmpty {
+                Section("Counting down") {
+                    ForEach(store.countdowns.prefix(3)) { CountdownRow(item: $0) }
+                }
             }
             if !overdue.isEmpty {
                 Section("Overdue") {
@@ -200,7 +217,10 @@ struct EventRow: View {
                 .frame(width: 4)
                 .frame(minHeight: 34)
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.title).font(.body.weight(.medium)).strikethrough(done)
+                HStack(spacing: 4) {
+                    PriorityBadge(priority: store.priority(of: item))
+                    Text(item.title).font(.body.weight(.medium)).strikethrough(done)
+                }
                 HStack(spacing: 6) {
                     Text(item.isAllDay ? "All day" : "\(item.start.formatted(date: .omitted, time: .shortened)) \u{2013} \(item.end.formatted(date: .omitted, time: .shortened))")
                     Text("\u{00B7} \(item.calendar)").lineLimit(1)
@@ -246,6 +266,7 @@ struct EventRow: View {
         .contextMenu {
             Button("Show Details") { showingDetails = true }
             Button(done ? "Mark Not Done" : "Mark Done") { store.setDone(item, !done) }
+            PriorityMenu(current: store.priority(of: item)) { store.setPriority(item, $0) }
         }
     }
 
@@ -260,6 +281,7 @@ struct EventDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var editing = false
     @State private var changed = false
+    @State private var travel: Int?
 
     var body: some View {
         let details = store.details(for: item)
@@ -292,6 +314,8 @@ struct EventDetailView: View {
                         Label(done ? "Not Done" : "Mark Done", systemImage: done ? "arrow.uturn.backward" : "checkmark.circle")
                     }
                     .buttonStyle(.bordered)
+                    PriorityMenu(current: store.priority(of: item), compact: true) { store.setPriority(item, $0) }
+                        .buttonStyle(.bordered)
                     if store.canEdit(item) {
                         Button { editing = true } label: { Label("Edit", systemImage: "pencil") }
                             .buttonStyle(.bordered)
@@ -305,6 +329,15 @@ struct EventDetailView: View {
                 if let location = item.location?.trimmingCharacters(in: .whitespacesAndNewlines), !location.isEmpty {
                     section("Location", systemImage: "mappin.and.ellipse") {
                         Text(location).textSelection(.enabled)
+                        #if os(iOS)
+                        if let travel, !item.isAllDay {
+                            let walking = AlertScheduler.settings.walking
+                            let leave = item.start.addingTimeInterval(-Double(travel) * 60)
+                            Label("\(travel) min \(walking ? "walk" : "drive") \u{00B7} leave by \(leave.formatted(date: .omitted, time: .shortened))",
+                                  systemImage: walking ? "figure.walk" : "car.fill")
+                                .font(.callout).foregroundStyle(.secondary)
+                        }
+                        #endif
                         if let maps = mapsURL(location) {
                             Link("Open in Maps", destination: maps).font(.callout)
                         }
@@ -351,6 +384,9 @@ struct EventDetailView: View {
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        #if os(iOS)
+        .task { if item.end > .now { travel = await LeaveBy.travelMinutes(to: item, walking: AlertScheduler.settings.walking) } }
+        #endif
         // After an edit or delete these details are out of date, so close them too.
         .sheet(isPresented: $editing, onDismiss: { if changed { dismiss() } }) {
             EventEditor(store: store, editing: item) { changed = true }
@@ -587,6 +623,271 @@ struct FreeRow: View {
     }
 }
 
+/// "Project deadline · Deadlines        12 days"
+struct CountdownRow: View {
+    let item: AgendaItem
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle().fill(Color(hex: item.color)).frame(width: 7, height: 7)
+            Text(item.title).lineLimit(1)
+            Text(item.start.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
+                .font(.caption).foregroundStyle(.secondary)
+            Spacer()
+            Text(Countdown.label(until: item.start, now: .now))
+                .font(.callout.weight(.semibold).monospacedDigit())
+                .foregroundStyle(Countdown.days(until: item.start, now: .now) <= 3 ? Color.red : Color.primary)
+        }
+    }
+}
+
+// MARK: Undo
+
+/// "Checked off “Pay rent”  Undo", for a few seconds after a change.
+struct UndoBanner: View {
+    let store: CalendarStore
+
+    var body: some View {
+        if let action = store.undoAction {
+            HStack(spacing: 12) {
+                Text(action.message).lineLimit(1)
+                Button("Undo") { store.performUndo() }
+                    .fontWeight(.semibold)
+                    .keyboardShortcut("z", modifiers: .command)
+                Button { store.dismissUndo() } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Dismiss")
+            }
+            .font(.callout)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .background(.regularMaterial, in: Capsule())
+            .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+            .padding(.bottom, 12)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .id(action.id)
+        }
+    }
+}
+
+// MARK: Plan my day
+
+/// Proposes today's plan: open tasks in the free stretches, most pressing first.
+/// Switch tasks off or change their length and the rest move to fit; nothing is
+/// saved until Add to Calendar.
+struct PlanDayView: View {
+    let store: CalendarStore
+    @State private var skipped: Set<String> = []
+    @State private var lengths: [String: Int] = [:]
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        let candidates = DayPlanner.candidates(store.tasks, now: .now)
+        let slots = DayPlanner.plan(candidates.filter { !skipped.contains($0.id) }, into: store.freeToday, lengths: lengths)
+        let placed = Set(slots.map(\.id))
+        NavigationStack {
+            List {
+                if candidates.isEmpty {
+                    Text("Nothing pressing today: no urgent, overdue or due-today tasks.").foregroundStyle(.secondary)
+                } else if store.freeToday.isEmpty {
+                    Text("No free time left today.").foregroundStyle(.secondary)
+                }
+                if !slots.isEmpty {
+                    Section("The plan") {
+                        ForEach(slots.sorted { $0.start < $1.start }) { slot in row(slot.task, slot: slot) }
+                    }
+                }
+                let left = candidates.filter { !placed.contains($0.id) }
+                if !left.isEmpty {
+                    Section {
+                        ForEach(left) { row($0, slot: nil) }
+                    } header: {
+                        Text("Not planned")
+                    } footer: {
+                        Text("Switched off, or no free stretch long enough.")
+                    }
+                }
+            }
+            .navigationTitle("Plan My Day")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add to Calendar") {
+                        store.schedule(slots)
+                        dismiss()
+                    }
+                    .disabled(slots.isEmpty)
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(width: 460, height: 520)
+        #endif
+    }
+
+    private func row(_ task: TaskItem, slot: DayPlanner.Slot?) -> some View {
+        HStack(spacing: 10) {
+            Toggle("", isOn: Binding(
+                get: { !skipped.contains(task.id) },
+                set: { on in if on { skipped.remove(task.id) } else { skipped.insert(task.id) } }))
+                .labelsHidden()
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    PriorityBadge(priority: task.priority)
+                    Text(task.title)
+                }
+                if let slot {
+                    Text("\(slot.start.formatted(date: .omitted, time: .shortened)) \u{2013} \(slot.end.formatted(date: .omitted, time: .shortened))")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            Menu {
+                ForEach([15, 30, 45, 60, 90, 120], id: \.self) { minutes in
+                    Button(FreeTime.length(Double(minutes) * 60)) { lengths[task.id] = minutes }
+                }
+            } label: {
+                Text(FreeTime.length(Double(slot?.minutes ?? lengths[task.id] ?? 30) * 60)).font(.callout)
+            }
+            .fixedSize()
+        }
+        .opacity(slot == nil ? 0.6 : 1)
+    }
+}
+
+// MARK: Priority
+
+/// "!" in orange for high, "!!" in red for urgent; nothing below that.
+struct PriorityBadge: View {
+    let priority: Priority
+
+    var body: some View {
+        switch priority {
+        case .urgent: Image(systemName: "exclamationmark.2").foregroundStyle(.red).fontWeight(.bold)
+            .accessibilityLabel("Urgent")
+        case .high: Image(systemName: "exclamationmark").foregroundStyle(.orange).fontWeight(.bold)
+            .accessibilityLabel("High priority")
+        default: EmptyView()
+        }
+    }
+}
+
+/// Picks a priority, from a context menu or a button.
+struct PriorityMenu: View {
+    let current: Priority
+    var compact = false
+    let set: (Priority) -> Void
+
+    var body: some View {
+        Menu {
+            ForEach(Priority.allCases.reversed(), id: \.self) { priority in
+                Button { set(priority) } label: {
+                    if priority == current { Label(priority.name, systemImage: "checkmark") } else { Text(priority.name) }
+                }
+            }
+        } label: {
+            if compact {
+                Label(current == .none ? "Priority" : current.name, systemImage: "flag")
+            } else {
+                Label("Priority", systemImage: "flag")
+            }
+        }
+    }
+}
+
+/// When Daybook alerts, by priority. The same screen on the Mac (Settings) and
+/// the iPhone (the gear on Tasks); each device keeps its own.
+struct AlertSettingsView: View {
+    let store: CalendarStore
+    @State private var settings = AlertScheduler.settings
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Alerts on this device", isOn: $settings.enabled)
+            } footer: {
+                #if os(macOS)
+                Text("Off on the Mac by default, so you aren\u{2019}t alerted twice when the iPhone has them on.")
+                #else
+                Text("Turn this off on whichever device you don\u{2019}t want alerts on, so they don\u{2019}t come twice.")
+                #endif
+            }
+            Section {
+                ForEach(AlertSettings.offsetChoices, id: \.self) { minutes in
+                    Toggle(AlertSettings.describe(minutes), isOn: Binding(
+                        get: { settings.importantOffsets.contains(minutes) },
+                        set: { on in
+                            if on { settings.importantOffsets.append(minutes) } else { settings.importantOffsets.removeAll { $0 == minutes } }
+                        }))
+                }
+            } header: {
+                Text("High and urgent")
+            } footer: {
+                Text("One alert at each time checked: \(settings.importantOffsets.count) in all.")
+            }
+            Section("Urgent tasks") {
+                Picker("After it\u{2019}s due, remind me", selection: $settings.urgentRepeatMinutes) {
+                    Text("Never").tag(Int?.none)
+                    ForEach([5, 10, 15, 30, 60], id: \.self) { Text("Every \($0) minutes").tag(Int?.some($0)) }
+                }
+                if settings.urgentRepeatMinutes != nil {
+                    Stepper("Up to \(settings.urgentRepeatCount) times", value: $settings.urgentRepeatCount, in: 1...10)
+                }
+            }
+            Section {
+                Picker("Tasks", selection: $settings.normalTaskOffset) { offsetChoices }
+                Picker("Events", selection: $settings.normalEventOffset) { offsetChoices }
+            } header: {
+                Text("Everything else")
+            } footer: {
+                Text("One alert. Calendar may already alert you for events with alerts of their own.")
+            }
+            #if os(iOS)
+            Section {
+                Toggle("Leave-by alerts", isOn: $settings.leaveBy)
+                if settings.leaveBy {
+                    Picker("Getting there", selection: $settings.walking) {
+                        Text("Driving").tag(false)
+                        Text("Walking").tag(true)
+                    }
+                    Picker("Extra time", selection: $settings.leaveBuffer) {
+                        ForEach([0, 5, 10, 15, 20], id: \.self) { Text($0 == 0 ? "None" : "\($0) minutes").tag($0) }
+                    }
+                }
+            } header: {
+                Text("Leaving for events")
+            } footer: {
+                Text("For events with a place in the next 12 hours, an alert when it\u{2019}s time to go, from Apple Maps travel time. Needs your location while Daybook is open.")
+            }
+            .onChange(of: settings.leaveBy, initial: true) { if settings.leaveBy { LeaveBy.authorize() } }
+            #endif
+            Section {
+                Picker("Alert at", selection: $settings.allDayHour) {
+                    ForEach(5...12, id: \.self) { hour in
+                        Text(Calendar.current.date(bySettingHour: hour, minute: 0, second: 0, of: .now)!
+                            .formatted(date: .omitted, time: .shortened)).tag(hour)
+                    }
+                }
+            } header: {
+                Text("Days without a time")
+            } footer: {
+                Text("For all-day events, and tasks with a day but no time.")
+            }
+        }
+        .formStyle(.grouped)
+        .onChange(of: settings) {
+            AlertScheduler.settings = settings
+            Task { await AlertScheduler.reschedule(store) }
+        }
+    }
+
+    @ViewBuilder private var offsetChoices: some View {
+        Text("None").tag(Int?.none)
+        ForEach(AlertSettings.offsetChoices, id: \.self) { Text(AlertSettings.describe($0)).tag(Int?.some($0)) }
+    }
+}
+
 // MARK: Search
 
 /// Events (six months back to a year ahead) and tasks matching the search text.
@@ -745,22 +1046,26 @@ struct DayCell: View {
                 if !tasks.isEmpty { Circle().strokeBorder(Color.secondary, lineWidth: 1.2).frame(width: 6, height: 6) }
             }
             #else
-            // Events first, then tasks (with an open circle, like a checkbox), three lines in all.
-            let shownEvents = Array(items.prefix(3))
-            let shownTasks = Array(tasks.prefix(3 - shownEvents.count))
+            // Events first, then tasks (with an open circle, like a checkbox): three lines
+            // in all, counting "+N more", which is all an 84-point cell has room for.
+            let lines = items.count + tasks.count > 3 ? 2 : 3
+            let shownEvents = Array(items.prefix(lines))
+            let shownTasks = Array(tasks.prefix(lines - shownEvents.count))
             ForEach(shownEvents) { item in
                 HStack(spacing: 3) {
                     Circle().fill(Color(hex: item.color)).frame(width: 6, height: 6)
-                    Text(item.title).lineLimit(1).strikethrough(store.isDone(item))
+                    Text(item.title).lineLimit(1).truncationMode(.tail).strikethrough(store.isDone(item))
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .font(.caption2)
                 .opacity(store.isDone(item) ? 0.5 : 1)
             }
             ForEach(shownTasks) { task in
                 HStack(spacing: 3) {
                     Image(systemName: "circle").font(.system(size: 6, weight: .bold))
-                    Text(task.title).lineLimit(1)
+                    Text(task.title).lineLimit(1).truncationMode(.tail)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
             }
@@ -774,7 +1079,10 @@ struct DayCell: View {
             Spacer(minLength: 0)
         }
         .padding(4)
-        .frame(maxWidth: .infinity, minHeight: Self.cellHeight, alignment: .topLeading)
+        // minWidth 0 lets every day take an equal share of the week, so a long title
+        // gets cut off with "…" instead of widening its day into the next one.
+        .frame(minWidth: 0, maxWidth: .infinity, minHeight: Self.cellHeight, alignment: .topLeading)
+        .clipped()
         .background(selected ? Color.accentColor.opacity(0.15) : Color(white: 0.5, opacity: inMonth ? 0.04 : 0.0))
         .background(.background)
         .contentShape(Rectangle())
@@ -824,17 +1132,22 @@ struct TaskRow: View {
     let task: TaskItem
     let showDate: Bool
     @State private var editingDate = false
+    @State private var showingDetails = false
 
     var body: some View {
         HStack(spacing: 10) {
             DoneButton(done: task.isCompleted) { store.setDone(task, !task.isCompleted) }
             VStack(alignment: .leading, spacing: 2) {
-                Text(task.title).strikethrough(task.isCompleted)
+                HStack(spacing: 4) {
+                    PriorityBadge(priority: task.priority)
+                    Text(task.title).strikethrough(task.isCompleted)
+                }
                 HStack(spacing: 6) {
                     if let due = task.due {
                         if showDate { Text(due.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())) }
                         if task.dueHasTime { Text(due.formatted(date: .omitted, time: .shortened)) }
                     }
+                    if task.repeats { Image(systemName: "repeat").accessibilityLabel("Repeats") }
                     Text(task.list)
                 }
                 .font(.caption)
@@ -857,14 +1170,98 @@ struct TaskRow: View {
         }
         .opacity(task.isCompleted ? 0.5 : 1)
         .padding(.vertical, 2)
+        // Tapping anywhere but the check and date buttons opens the details.
+        .contentShape(Rectangle())
+        .onTapGesture { showingDetails = true }
+        .sheet(isPresented: $showingDetails) { TaskDetailView(store: store, task: task) }
         // Drag onto a free stretch to block out time for it.
         .draggable(task.id) { Label(task.title, systemImage: "checklist").padding(6) }
         .contextMenu {
+            Button("Show Details") { showingDetails = true }
             Button(task.isCompleted ? "Mark Not Done" : "Mark Done") { store.setDone(task, !task.isCompleted) }
             if !task.isCompleted {
                 Button(task.due == nil ? "Add Date\u{2026}" : "Change Date\u{2026}") { editingDate = true }
+                PriorityMenu(current: task.priority) { store.setPriority(task, $0) }
             }
         }
+    }
+}
+
+/// Everything about a task, editable: notes, link, list, date, repeat, priority.
+struct TaskDetailView: View {
+    let store: CalendarStore
+    let task: TaskItem
+    @State private var draft: CalendarStore.TaskDraft
+    @State private var askingDelete = false
+    @Environment(\.dismiss) private var dismiss
+
+    init(store: CalendarStore, task: TaskItem) {
+        self.store = store
+        self.task = task
+        _draft = State(initialValue: store.draft(for: task) ?? CalendarStore.TaskDraft(title: task.title))
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Title", text: $draft.title)
+                    TextField("Notes", text: $draft.notes, axis: .vertical).lineLimit(2...8)
+                    TextField("Link", text: $draft.link)
+                        #if os(iOS)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                        .autocorrectionDisabled()
+                }
+                Section {
+                    Toggle("Date", isOn: Binding(
+                        get: { draft.due != nil },
+                        set: { draft.due = $0 ? (draft.due ?? Calendar.current.startOfDay(for: .now)) : nil }))
+                    if let due = draft.due {
+                        DatePicker("Day", selection: Binding(get: { due }, set: { draft.due = $0 }), displayedComponents: .date)
+                        Toggle("Time", isOn: $draft.hasTime)
+                        if draft.hasTime {
+                            DatePicker("At", selection: Binding(get: { due }, set: { draft.due = $0 }), displayedComponents: .hourAndMinute)
+                        }
+                    }
+                    Picker("Repeat", selection: $draft.repeats) {
+                        ForEach(CalendarStore.Repeat.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                }
+                Section {
+                    Picker("Priority", selection: $draft.priority) {
+                        ForEach(Priority.allCases.reversed(), id: \.self) { Text($0.name).tag($0) }
+                    }
+                    Picker("List", selection: $draft.listID) {
+                        ForEach(store.reminderLists) { list in
+                            Text(list.account.isEmpty ? list.title : "\(list.title) (\(list.account))").tag(list.id)
+                        }
+                    }
+                }
+                Section {
+                    Button("Delete Task", role: .destructive) { askingDelete = true }
+                }
+            }
+            .formStyle(.grouped)
+            .navigationTitle("Task")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { if store.save(draft, for: task) { dismiss() } }
+                        .disabled(draft.title.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            .confirmationDialog("Delete \u{201C}\(task.title)\u{201D}?", isPresented: $askingDelete, titleVisibility: .visible) {
+                Button("Delete Task", role: .destructive) {
+                    store.delete(task)
+                    dismiss()
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(width: 440, height: 560)
+        #endif
     }
 }
 
@@ -989,7 +1386,7 @@ struct QuickAddField: View {
         if let defaultDate {
             return "Add \(kind) for \(defaultDate.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))"
         }
-        return makingEvent ? "Add an event: \u{201C}coffee with Sam thu 2pm\u{201D}" : "Add a task: \u{201C}submit SOP friday 3pm\u{201D}"
+        return makingEvent ? "Add an event: \u{201C}coffee with Sam thu 2pm\u{201D}" : "Add a task: \u{201C}submit report friday 3pm\u{201D}"
     }
 
     private func add() {

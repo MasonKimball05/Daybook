@@ -68,7 +68,9 @@ enum BriefNotifier {
     static func markSeen(_ brief: CalendarStore.PostedBrief) async {
         defaults.set(brief.version, forKey: "briefSeenVersion")
         defaults.set(Date.now, forKey: "briefSeenAt")
-        center.removeAllDeliveredNotifications()
+        // Only the brief's own notifications; task and event alerts stay.
+        let delivered = await center.deliveredNotifications().map(\.request.identifier)
+        center.removeDeliveredNotifications(withIdentifiers: delivered.filter { $0.hasPrefix("brief-") || $0.hasPrefix("backup-") })
         await scheduleBackups()
     }
 

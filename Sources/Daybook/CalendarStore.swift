@@ -41,6 +41,8 @@ final class CalendarStore {
     private(set) var completedToday: [TaskItem] = []
     /// AgendaItem ids marked done.
     private(set) var doneEventIDs: Set<String> = []
+    /// Priorities set on events in Daybook, by AgendaItem id.
+    private(set) var eventPriorities: [String: Priority] = [:]
     /// Morning briefs posted by the scheduled task (the last two weeks), newest first.
     private(set) var briefs: [PostedBrief] = []
     var brief: PostedBrief? { briefs.first }
@@ -64,7 +66,35 @@ final class CalendarStore {
         didSet { Task { await reload() } }
     }
 
+    /// The last change that can be taken back, shown as a banner for a few seconds.
+    struct UndoAction: Identifiable {
+        let id = UUID()
+        let message: String
+        let undo: @MainActor () -> Void
+    }
+
+    private(set) var undoAction: UndoAction?
+
+    func offerUndo(_ message: String, _ undo: @escaping @MainActor () -> Void) {
+        let action = UndoAction(message: message, undo: undo)
+        undoAction = action
+        Task {
+            try? await Task.sleep(for: .seconds(6))
+            if undoAction?.id == action.id { undoAction = nil }
+        }
+    }
+
+    func performUndo() {
+        let action = undoAction
+        undoAction = nil
+        action?.undo()
+    }
+
+    func dismissUndo() { undoAction = nil }
+
     @ObservationIgnored let store = EKEventStore()
+    /// The event a save just wrote, so a later undo can find it.
+    @ObservationIgnored private(set) var lastSavedEventID: String?
     /// The EventKit events behind `events`, by AgendaItem id, for the details view.
     @ObservationIgnored private var ekEvents: [String: EKEvent] = [:]
     @ObservationIgnored private var observer: NSObjectProtocol?
@@ -118,7 +148,8 @@ final class CalendarStore {
     func reload() async {
         let calendar = Calendar.current
         var start = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: .now))!
-        var end = calendar.date(byAdding: .day, value: 29, to: start)!
+        // Two months ahead, for the deadline countdowns.
+        var end = calendar.date(byAdding: .day, value: Countdown.horizonDays + 1, to: start)!
         if let extra = extraRange {
             start = min(start, extra.start)
             end = max(end, extra.end)
@@ -147,11 +178,16 @@ final class CalendarStore {
                 withCompletionDateStarting: calendar.startOfDay(for: .now), ending: nil, calendars: lists))
             let entries = await fetchEntries(in: daybookLists)
             doneEventIDs = Set(entries.compactMap { if case .done(let id) = $0.marker { id } else { nil } })
+            eventPriorities = Dictionary(entries.compactMap { entry -> (String, Priority)? in
+                guard case .priority(let id, let level) = entry.marker, let priority = Priority(rawValue: level) else { return nil }
+                return (id, priority)
+            }, uniquingKeysWith: { a, _ in a })
             briefs = entries.compactMap { entry in
                 if case .brief(let date) = entry.marker { PostedBrief(date: date, markdown: entry.body, version: entry.reminderID) } else { nil }
             }.sorted { $0.date > $1.date }
         }
         exportSummary()
+        await AlertScheduler.reschedule(self)
         #if os(iOS)
         // Keep the home screen widget in step with what the app shows.
         WidgetCenter.shared.reloadAllTimelines()
@@ -194,7 +230,7 @@ final class CalendarStore {
 
     // MARK: Tasks
 
-    /// Adds a task from typed text ("submit SOP friday 3pm") to the default Reminders list.
+    /// Adds a task from typed text ("submit report friday 3pm") to the default Reminders list.
     /// A date picked in the app (`due`) wins over one typed in the text.
     func addTask(_ text: String, due picked: Date? = nil, hasTime pickedHasTime: Bool = false) {
         let parsed = QuickAdd.parse(text)
@@ -202,6 +238,7 @@ final class CalendarStore {
         let reminder = EKReminder(eventStore: store)
         reminder.title = parsed.title
         reminder.calendar = list
+        reminder.priority = (parsed.priority ?? .none).reminderPriority
         if let picked {
             Self.setDue(picked, hasTime: pickedHasTime, on: reminder)
         } else if let due = parsed.due {
@@ -233,20 +270,193 @@ final class CalendarStore {
         if hasTime { reminder.addAlarm(EKAlarm(absoluteDate: due)) }
     }
 
+    func setPriority(_ task: TaskItem, _ priority: Priority) {
+        guard let reminder = store.calendarItem(withIdentifier: task.id) as? EKReminder else { return }
+        reminder.priority = priority.reminderPriority
+        save(reminder)
+    }
+
+    // MARK: Task details
+
+    enum Repeat: String, CaseIterable, Identifiable {
+        case never = "Never", daily = "Every day", weekdays = "Every weekday", weekly = "Every week",
+             monthly = "Every month", yearly = "Every year"
+        var id: String { rawValue }
+    }
+
+    struct TaskDraft: Equatable {
+        var title = ""
+        var notes = ""
+        var link = ""
+        var listID = ""
+        var due: Date?
+        var hasTime = false
+        var priority = Priority.none
+        var repeats = Repeat.never
+    }
+
+    /// Reminders lists a task can be in (not Daybook's hidden one).
+    var reminderLists: [CalendarInfo] {
+        let hidden = Set(doneLists().map(\.calendarIdentifier))
+        return store.calendars(for: .reminder)
+            .filter { $0.allowsContentModifications && !hidden.contains($0.calendarIdentifier) }
+            .map { CalendarInfo(id: $0.calendarIdentifier, title: $0.title, color: EKConvert.hex($0.cgColor), account: $0.source?.title ?? "") }
+            .sorted { ($0.account, $0.title) < ($1.account, $1.title) }
+    }
+
+    func draft(for task: TaskItem) -> TaskDraft? {
+        guard let reminder = store.calendarItem(withIdentifier: task.id) as? EKReminder else { return nil }
+        return TaskDraft(title: reminder.title ?? "", notes: reminder.notes ?? "", link: reminder.url?.absoluteString ?? "",
+                         listID: reminder.calendar?.calendarIdentifier ?? "", due: task.due, hasTime: task.dueHasTime,
+                         priority: task.priority, repeats: Self.repeatKind(reminder.recurrenceRules?.first))
+    }
+
+    @discardableResult
+    func save(_ draft: TaskDraft, for task: TaskItem) -> Bool {
+        guard let reminder = store.calendarItem(withIdentifier: task.id) as? EKReminder else { return false }
+        reminder.title = draft.title.trimmingCharacters(in: .whitespaces)
+        reminder.notes = draft.notes.isEmpty ? nil : draft.notes
+        reminder.url = URL(string: draft.link.trimmingCharacters(in: .whitespaces)).flatMap { $0.scheme == nil ? nil : $0 }
+        if let list = store.calendar(withIdentifier: draft.listID) { reminder.calendar = list }
+        reminder.priority = draft.priority.reminderPriority
+        // A repeating task needs a date to repeat from: today, if it had none.
+        var due = draft.due
+        if draft.repeats != .never && due == nil { due = Calendar.current.startOfDay(for: .now) }
+        Self.setDue(due, hasTime: draft.hasTime, on: reminder)
+        for rule in reminder.recurrenceRules ?? [] { reminder.removeRecurrenceRule(rule) }
+        if let rule = Self.rule(draft.repeats) { reminder.addRecurrenceRule(rule) }
+        do {
+            try store.save(reminder, commit: true)
+            lastError = nil
+            Task { await reload() }
+            return true
+        } catch {
+            lastError = "Couldn\u{2019}t save the task: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    func delete(_ task: TaskItem) {
+        guard let reminder = store.calendarItem(withIdentifier: task.id) as? EKReminder else { return }
+        let copy = draft(for: task)
+        do {
+            try store.remove(reminder, commit: true)
+            if let copy {
+                offerUndo("Deleted \u{201C}\(task.title)\u{201D}") { [weak self] in self?.restore(copy) }
+            }
+        } catch {
+            lastError = "Couldn\u{2019}t delete the task: \(error.localizedDescription)"
+        }
+        Task { await reload() }
+    }
+
+    /// A deleted task, back as a new reminder with the same details.
+    private func restore(_ draft: TaskDraft) {
+        let reminder = EKReminder(eventStore: store)
+        reminder.calendar = store.calendar(withIdentifier: draft.listID) ?? store.defaultCalendarForNewReminders()
+        reminder.title = draft.title
+        reminder.notes = draft.notes.isEmpty ? nil : draft.notes
+        reminder.url = URL(string: draft.link)
+        reminder.priority = draft.priority.reminderPriority
+        Self.setDue(draft.due, hasTime: draft.hasTime, on: reminder)
+        if let rule = Self.rule(draft.repeats) { reminder.addRecurrenceRule(rule) }
+        save(reminder)
+    }
+
+    /// Removes events Daybook just made (an undo of blocking time or a day plan).
+    func removeEvents(_ identifiers: [String]) {
+        for id in identifiers {
+            if let event = store.event(withIdentifier: id) { try? store.remove(event, span: .thisEvent, commit: true) }
+        }
+        Task { await reload() }
+    }
+
+    /// Puts an event back how it was before a change (an undo of a move).
+    func restoreEvent(_ identifier: String, to draft: EventDraft) {
+        guard let event = store.event(withIdentifier: identifier) else { return }
+        event.startDate = draft.start
+        event.endDate = draft.end
+        event.isAllDay = draft.isAllDay
+        event.title = draft.title
+        try? store.save(event, span: .thisEvent, commit: true)
+        Task { await reload() }
+    }
+
+    private static func rule(_ kind: Repeat) -> EKRecurrenceRule? {
+        switch kind {
+        case .never: nil
+        case .daily: EKRecurrenceRule(recurrenceWith: .daily, interval: 1, end: nil)
+        case .weekdays: EKRecurrenceRule(recurrenceWith: .weekly, interval: 1,
+                                         daysOfTheWeek: [.monday, .tuesday, .wednesday, .thursday, .friday].map { EKRecurrenceDayOfWeek($0) },
+                                         daysOfTheMonth: nil, monthsOfTheYear: nil, weeksOfTheYear: nil, daysOfTheYear: nil, setPositions: nil, end: nil)
+        case .weekly: EKRecurrenceRule(recurrenceWith: .weekly, interval: 1, end: nil)
+        case .monthly: EKRecurrenceRule(recurrenceWith: .monthly, interval: 1, end: nil)
+        case .yearly: EKRecurrenceRule(recurrenceWith: .yearly, interval: 1, end: nil)
+        }
+    }
+
+    private static func repeatKind(_ rule: EKRecurrenceRule?) -> Repeat {
+        guard let rule else { return .never }
+        switch rule.frequency {
+        case .daily: return .daily
+        case .weekly: return (rule.daysOfTheWeek?.count ?? 0) == 5 ? .weekdays : .weekly
+        case .monthly: return .monthly
+        case .yearly: return .yearly
+        @unknown default: return .never
+        }
+    }
+
     /// Checks a task off, or (for one completed today) un-checks it.
-    func setDone(_ task: TaskItem, _ done: Bool) {
+    func setDone(_ task: TaskItem, _ done: Bool, undoable: Bool = true) {
         guard let reminder = store.calendarItem(withIdentifier: task.id) as? EKReminder else { return }
         reminder.isCompleted = done
         save(reminder)
+        if undoable {
+            offerUndo(done ? "Checked off \u{201C}\(task.title)\u{201D}" : "Unchecked \u{201C}\(task.title)\u{201D}") { [weak self] in
+                self?.setDone(task, !done, undoable: false)
+            }
+        }
     }
 
     // MARK: Events
 
     func isDone(_ item: AgendaItem) -> Bool { doneEventIDs.contains(item.id) }
 
+    func priority(of item: AgendaItem) -> Priority { eventPriorities[item.id] ?? .none }
+
+    /// The next big dates, for the countdowns.
+    var countdowns: [AgendaItem] {
+        Countdown.upcoming(events.filter { !isDone($0) }, priorities: eventPriorities, now: .now)
+    }
+
+    /// An event's priority lives in the Daybook list, like done marks, since
+    /// events have no priority of their own and many calendars are read-only.
+    func setPriority(_ item: AgendaItem, _ priority: Priority) {
+        eventPriorities[item.id] = priority == .none ? nil : priority // show it right away
+        Task {
+            await remove { if case .priority(let id, _) = $0 { id == item.id } else { false } }
+            if priority != .none, let list = doneMarksList(create: true) {
+                let marker = DaybookMarker.priority(eventID: item.id, level: priority.rawValue)
+                let mark = EKReminder(eventStore: store)
+                mark.calendar = list
+                mark.title = "\(priority.name) priority: \(item.title)"
+                mark.url = marker.url
+                mark.notes = marker.url.absoluteString
+                mark.isCompleted = true
+                try? store.save(mark, commit: true)
+            }
+            await reload()
+        }
+    }
+
     /// Marks a calendar event done (or not) with a completed reminder in the
     /// Daybook list. The event itself is never changed.
-    func setDone(_ item: AgendaItem, _ done: Bool) {
+    func setDone(_ item: AgendaItem, _ done: Bool, undoable: Bool = true) {
+        if undoable {
+            offerUndo(done ? "Marked \u{201C}\(item.title)\u{201D} done" : "Marked \u{201C}\(item.title)\u{201D} not done") { [weak self] in
+                self?.setDone(item, !done, undoable: false)
+            }
+        }
         if done {
             guard !isDone(item), let list = doneMarksList(create: true) else { return }
             let marker = DaybookMarker.done(eventID: item.id)
@@ -288,7 +498,7 @@ final class CalendarStore {
             switch marker {
             case .brief(let day): day == key || day < cutoff
             case .ready: true // from an older version, which alerted through Reminders
-            case .done: false
+            case .done, .priority: false
             }
         }
         let reminder = EKReminder(eventStore: store)
@@ -394,7 +604,32 @@ final class CalendarStore {
         var draft = newDraft(at: block.start, until: block.end)
         draft.title = task.title
         draft.notes = "Time for a task in Daybook."
-        save(draft)
+        if save(draft), let id = lastSavedEventID {
+            offerUndo("Blocked time for \u{201C}\(task.title)\u{201D}") { [weak self] in self?.removeEvents([id]) }
+        }
+    }
+
+    /// Today's free stretches from now on, for planning the day.
+    var freeToday: [DateInterval] {
+        let today = Calendar.current.startOfDay(for: .now)
+        return FreeTime.blocks(on: today, events: events.filter { Calendar.current.isDateInToday($0.start) || ($0.start < today && $0.end > today) })
+    }
+
+    /// Puts a day plan on the calendar: one event per task, named after it.
+    @discardableResult
+    func schedule(_ slots: [DayPlanner.Slot]) -> Int {
+        var saved: [String] = []
+        for slot in slots {
+            var draft = newDraft(at: slot.start)
+            draft.title = slot.task.title
+            draft.end = slot.end
+            draft.notes = "Planned in Daybook."
+            if save(draft), let id = lastSavedEventID { saved.append(id) }
+        }
+        if !saved.isEmpty {
+            offerUndo("Planned \(saved.count) \(saved.count == 1 ? "task" : "tasks")") { [weak self] in self?.removeEvents(saved) }
+        }
+        return saved.count
     }
 
     /// A new event starting at the next whole hour (or on `day`, at that hour).
@@ -435,6 +670,7 @@ final class CalendarStore {
         event.notes = draft.notes.isEmpty ? nil : draft.notes
         do {
             try store.save(event, span: futureToo ? .futureEvents : .thisEvent, commit: true)
+            lastSavedEventID = event.eventIdentifier
             UserDefaults.standard.set(calendar.calendarIdentifier, forKey: "lastEventCalendar")
             lastError = nil
             Task { await reload() }
@@ -447,9 +683,14 @@ final class CalendarStore {
 
     func delete(_ item: AgendaItem, futureToo: Bool = false) {
         guard let event = ekEvents[item.id] else { return }
+        // A single event can come back as a copy; a run of repeats can't.
+        let copy = event.hasRecurrenceRules ? nil : draft(for: item)
         do {
             try store.remove(event, span: futureToo ? .futureEvents : .thisEvent, commit: true)
             lastError = nil
+            if let copy {
+                offerUndo("Deleted \u{201C}\(item.title)\u{201D}") { [weak self] in self?.save(copy) }
+            }
         } catch {
             lastError = "Couldn\u{2019}t delete the event: \(error.localizedDescription)"
         }
@@ -475,7 +716,13 @@ final class CalendarStore {
                 draft.end = draft.start
             }
         }
-        save(draft)
+        if save(draft), let priority = parsed.priority, priority != .none {
+            // The new event's id is known once it's saved and reloaded.
+            Task {
+                await reload()
+                if let item = events.first(where: { $0.title == draft.title && $0.start == draft.start }) { setPriority(item, priority) }
+            }
+        }
     }
 
     // MARK: Search
@@ -629,7 +876,7 @@ final class CalendarStore {
         #if os(macOS)
         do {
             let open = events.filter { !isDone($0) }
-            try DailySummary(now: .now, events: open, tasks: tasks).write()
+            try DailySummary(now: .now, events: open, tasks: tasks, eventPriorities: eventPriorities).write()
             try WeekSummary(now: .now, events: open, tasks: tasks).write()
         } catch {
             lastError = "Couldn\u{2019}t write the daily summary: \(error.localizedDescription)"

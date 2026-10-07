@@ -22,7 +22,8 @@ enum EKConvert {
         return TaskItem(id: reminder.calendarItemIdentifier, title: reminder.title ?? "Untitled",
                         due: components.flatMap { Calendar.current.date(from: $0) },
                         dueHasTime: components?.hour != nil, list: reminder.calendar?.title ?? "Reminders",
-                        isCompleted: reminder.isCompleted)
+                        isCompleted: reminder.isCompleted, priority: Priority(reminderPriority: reminder.priority),
+                        repeats: reminder.hasRecurrenceRules)
     }
 
     static func hex(_ color: CGColor?) -> String {

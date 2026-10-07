@@ -86,6 +86,10 @@ struct MenuBarPanel: View {
                         Text("Tasks").font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.top, 6)
                         ForEach(tasks.prefix(8)) { TaskRow(store: store, task: $0, showDate: false) }
                     }
+                    if !store.countdowns.isEmpty {
+                        Text("Counting down").font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.top, 6)
+                        ForEach(store.countdowns.prefix(3)) { CountdownRow(item: $0) }
+                    }
                 }
             }
             .frame(maxHeight: 420)
@@ -165,7 +169,7 @@ struct QuickAddBox: View {
             .buttonStyle(.borderless)
             .foregroundStyle(.tint)
             .help("Switch between a task and an event (Tab)")
-            TextField(makingEvent ? "Add an event: \u{201C}coffee with Sam thu 2pm\u{201D}" : "Add a task: \u{201C}submit SOP friday 3pm\u{201D}", text: $text)
+            TextField(makingEvent ? "Add an event: \u{201C}coffee with Sam thu 2pm\u{201D}" : "Add a task: \u{201C}submit report friday 3pm\u{201D}", text: $text)
                 .textFieldStyle(.plain)
                 .font(.title3)
                 .focused($focused)

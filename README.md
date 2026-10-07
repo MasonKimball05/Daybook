@@ -1,5 +1,7 @@
 # Daybook
 
+[![Tests](https://github.com/MasonKimball05/Daybook/actions/workflows/tests.yml/badge.svg)](https://github.com/MasonKimball05/Daybook/actions/workflows/tests.yml)
+
 One agenda for everything: every calendar on my Mac, my apps' dates, and my
 tasks, in one window. It also writes a daily summary that a scheduled Claude
 agent turns into my morning brief.
@@ -15,7 +17,7 @@ agent turns into my morning brief.
   can't reach the desktop over Tailscale. Calendar keeps a copy, so they stay
   visible when the desktop is off.
 - **Tasks are Apple Reminders**, so they sync to my iPhone. Type
-  "submit SOP friday 3pm" and it becomes a task due Friday at 3:00 PM.
+  "submit report friday 3pm" and it becomes a task due Friday at 3:00 PM.
 - **Today, Week, Month and Tasks** views, and a Calendars menu to hide any calendar.
 - **Mark anything done**: tasks complete in Reminders (and can be undone the same
   day), and calendar events get a check too. Events have no "done" of their own, so
@@ -33,7 +35,17 @@ Swift 6 and SwiftUI, no dependencies.
 - **Events:** add from the quick-add field (click its icon to switch to events), New Event (⌘N, or + on iPhone), and Edit or Delete from an event's details. Subscribed calendars are read-only.
 - **Free time:** open stretches (8 AM to 10 PM, 30 minutes or more) show between events. Tap one, or drag a task onto it, to block the time.
 - **Week ahead:** `week.md` is written with `today.md`; the "Week ahead (Daybook)" scheduled task turns it into a Sunday 6 PM preview, posted to the iPhone like the morning brief.
+- **Priority and alerts:** set a task's or event's priority (None to Urgent) from its right-click / long-press menu, the event details, or by typing `!high` / `!urgent` when adding. High and urgent get an alert at each time you pick; everything else gets one; urgent tasks can keep nagging after they're due. Settings: ⌘, on the Mac, the gear on Tasks on the iPhone. Each device has its own switch (the Mac starts off). Task priorities are Reminders' own (urgent shows there as high); event priorities live in the Daybook list.
+- **Siri and Shortcuts (iPhone):** "Add a task in Daybook", "Add an event in Daybook", "What's next in Daybook", "What's on today in Daybook". All four are in the Shortcuts app too, for the Action button.
+- **Plan My Day:** fits urgent, overdue and due-today tasks into today's free time. Switch tasks off or change their length, then Add to Calendar.
+- **Leave-by alerts (iPhone):** for events with a place in the next 12 hours, an alert when it's time to go, from Apple Maps travel time (driving or walking, plus extra time).
+- **Task details:** tap a task for its notes, link, list, date, repeat (daily, weekdays, weekly...), priority, or to delete it.
+- **Week grid (Mac):** the Week tab is hour by hour. Drag events to move them, drag the bottom edge to change the length, double-click for a new event. The 7-day list is the Agenda tab.
+- **Undo:** a banner (and ⌘Z on the Mac) after checking off, deleting, blocking time, planning or moving.
+- **Countdowns:** days left to deadlines (all-day items on calendars named like "deadlines" or "follow-ups", and anything high or urgent), on Today, in the menu bar panel, and in the Deadlines widget.
 - **Search:** ⌘F on the Mac, the Search tab on the iPhone. Events six months back to a year ahead, and every task.
+
+The scheduled briefs run only `Tools/brief.sh` (morning, week, check, post), so each unattended run needs a handful of approvals given once instead of a prompt for every step.
 
 ## Build and install
 

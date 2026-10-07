@@ -1,16 +1,31 @@
 import Foundation
 
-/// Turns typed text into a task: "submit SOP friday 3pm" becomes the task
-/// "submit SOP", due Friday at 3:00 PM. The date is found with NSDataDetector,
+/// Turns typed text into a task: "submit report friday 3pm" becomes the task
+/// "submit report", due Friday at 3:00 PM. The date is found with NSDataDetector,
 /// the same parser Mail and Messages use, then cut out of the title.
 public enum QuickAdd {
     public struct Parsed: Equatable, Sendable {
         public let title: String
         public let due: Date?
         public let hasTime: Bool
+        /// Typed as "!high", "!urgent" and so on; nil when none was typed.
+        public var priority: Priority? = nil
     }
 
     public static func parse(_ text: String, now: Date = .now) -> Parsed {
+        // A priority word anywhere ("!urgent call the bank") is taken out first.
+        var priority: Priority?
+        let words = text.split(separator: " ", omittingEmptySubsequences: false).filter { word in
+            guard let found = Priority.token(word) else { return true }
+            priority = found
+            return false
+        }
+        var parsed = parseDate(words.joined(separator: " "))
+        parsed.priority = priority
+        return parsed
+    }
+
+    static func parseDate(_ text: String) -> Parsed {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue),
               let match = detector.firstMatch(in: trimmed, options: [], range: NSRange(trimmed.startIndex..., in: trimmed)),
@@ -19,7 +34,7 @@ public enum QuickAdd {
         }
         var title = trimmed
         title.removeSubrange(range)
-        // Tidy what's left: "submit SOP by" -> "submit SOP".
+        // Tidy what's left: "submit report by" -> "submit report".
         title = title.trimmingCharacters(in: .whitespaces)
         for word in [" by", " on", " at", " due"] where title.lowercased().hasSuffix(word) {
             title = String(title.dropLast(word.count))

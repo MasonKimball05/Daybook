@@ -46,14 +46,19 @@ public struct TaskItem: Hashable, Identifiable, Sendable, Codable {
     public let dueHasTime: Bool
     public let list: String
     public let isCompleted: Bool
+    public let priority: Priority
+    public let repeats: Bool
 
-    public init(id: String, title: String, due: Date?, dueHasTime: Bool = false, list: String = "Reminders", isCompleted: Bool = false) {
+    public init(id: String, title: String, due: Date?, dueHasTime: Bool = false, list: String = "Reminders",
+                isCompleted: Bool = false, priority: Priority = .none, repeats: Bool = false) {
         self.id = id
         self.title = title
         self.due = due
         self.dueHasTime = dueHasTime
         self.list = list
         self.isCompleted = isCompleted
+        self.priority = priority
+        self.repeats = repeats
     }
 
     public func isOverdue(now: Date, calendar: Calendar) -> Bool {

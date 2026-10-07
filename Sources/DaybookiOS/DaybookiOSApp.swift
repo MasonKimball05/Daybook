@@ -12,6 +12,8 @@ struct DaybookiOSApp: App {
     @State private var showingHistory = false
     @State private var addingEvent = false
     @State private var query = ""
+    @State private var showingSettings = false
+    @State private var planning = false
 
     var body: some Scene {
         WindowGroup {
@@ -25,6 +27,7 @@ struct DaybookiOSApp: App {
                                     .toolbar {
                                         // Today's brief again, and the ones before it.
                                         Button { showingHistory = true } label: { Label("Morning Briefs", systemImage: "sun.horizon") }
+                                        Button { planning = true } label: { Label("Plan My Day", systemImage: "wand.and.stars") }
                                         newEventButton
                                     }
                             }
@@ -55,11 +58,18 @@ struct DaybookiOSApp: App {
                             NavigationStack {
                                 TasksView(store: store)
                                     .navigationTitle("Tasks")
-                                    .toolbar { CalendarFilter(store: store) }
+                                    .toolbar {
+                                        CalendarFilter(store: store)
+                                        Button { showingSettings = true } label: { Label("Alerts", systemImage: "gearshape") }
+                                    }
                             }
                         }
                     }
                     .refreshable { await store.reload() }
+                    // Above the tab bar.
+                    .overlay(alignment: .bottom) {
+                        UndoBanner(store: store).padding(.bottom, 52).animation(.snappy, value: store.undoAction?.id)
+                    }
                     .sheet(isPresented: $showingBrief) {
                         if let brief = store.brief {
                             BriefPopup(brief: brief)
@@ -70,6 +80,16 @@ struct DaybookiOSApp: App {
                         }
                     }
                     .sheet(isPresented: $addingEvent) { EventEditor(store: store) }
+                    .sheet(isPresented: $planning) { PlanDayView(store: store) }
+                    .sheet(isPresented: $showingSettings) {
+                        NavigationStack {
+                            AlertSettingsView(store: store)
+                                .navigationTitle("Alerts")
+                                .toolbar {
+                                    ToolbarItem(placement: .confirmationAction) { Button("Done") { showingSettings = false } }
+                                }
+                        }
+                    }
                     .sheet(isPresented: $showingHistory) {
                         BriefHistoryView(briefs: store.briefs).onAppear {
                             store.briefSeen()

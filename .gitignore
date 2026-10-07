@@ -8,3 +8,5 @@ build/
 xcuserdata/
 # Built icon set (make icon makes and removes it)
 Resources/AppIcon.iconset/
+# iCloud Drive conflict copies ("Daybook 2.xcodeproj")
+* 2.*

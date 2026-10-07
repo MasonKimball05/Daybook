@@ -63,6 +63,10 @@ struct DaybookApp: App {
             MenuBarLabel(store: delegate.store, clock: delegate.clock)
         }
         .menuBarExtraStyle(.window)
+
+        Settings {
+            AlertSettingsView(store: delegate.store).frame(width: 460, height: 620)
+        }
     }
 }
 

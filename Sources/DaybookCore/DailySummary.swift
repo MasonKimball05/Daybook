@@ -13,8 +13,10 @@ public struct DailySummary: Codable, Sendable {
     public let upcoming: [AgendaItem]
     /// Open stretches left today (8 AM to 10 PM, half an hour or more).
     public let freeToday: [DateInterval]
+    /// Priorities set on events in Daybook, by event id.
+    public let eventPriorities: [String: Priority]
 
-    public init(now: Date, events: [AgendaItem], tasks: [TaskItem], calendar: Calendar = .current) {
+    public init(now: Date, events: [AgendaItem], tasks: [TaskItem], eventPriorities: [String: Priority] = [:], calendar: Calendar = .current) {
         let today = calendar.startOfDay(for: now)
         let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
         let dayAfter = calendar.date(byAdding: .day, value: 2, to: today)!
@@ -29,6 +31,7 @@ public struct DailySummary: Codable, Sendable {
         tasksUndated = open.filter { $0.due == nil }
         upcoming = events.filter { $0.isAllDay && $0.start >= dayAfter && $0.start < twoWeeks }.sorted(by: Self.order)
         freeToday = FreeTime.blocks(on: today, events: events, now: now, calendar: calendar)
+        self.eventPriorities = eventPriorities
     }
 
     static func order(_ a: AgendaItem, _ b: AgendaItem) -> Bool {
@@ -42,12 +45,12 @@ public struct DailySummary: Codable, Sendable {
         let short = formatter("EEE MMM d", timeZone)
         func line(_ item: AgendaItem) -> String {
             let when = item.isAllDay ? "All day" : "\(time.string(from: item.start))\u{2013}\(time.string(from: item.end))"
-            var text = "- \(when): \(item.title) [\(item.calendar)]"
+            var text = "- \(when): \(Self.mark(eventPriorities[item.id]))\(item.title) [\(item.calendar)]"
             if let place = item.place { text += " @ \(place)" }
             return text
         }
         func taskLine(_ task: TaskItem) -> String {
-            var text = "- \(task.title)"
+            var text = "- \(Self.mark(task.priority))\(task.title)"
             if let due = task.due { text += " (due \(task.dueHasTime ? short.string(from: due) + " " + time.string(from: due) : short.string(from: due)))" }
             return text + " [\(task.list)]"
         }
@@ -70,6 +73,15 @@ public struct DailySummary: Codable, Sendable {
         if !tasksUndated.isEmpty { out += ["## Tasks with no date"] + tasksUndated.map(taskLine) + [""] }
         out.append("_Generated \(formatter("MMM d, h:mm a", timeZone).string(from: generatedAt))_")
         return out.joined(separator: "\n") + "\n"
+    }
+
+    /// "URGENT: " or "HIGH PRIORITY: " in front of an item's title.
+    static func mark(_ priority: Priority?) -> String {
+        switch priority {
+        case .urgent: "URGENT: "
+        case .high: "HIGH PRIORITY: "
+        default: ""
+        }
     }
 
     public func json() throws -> Data {

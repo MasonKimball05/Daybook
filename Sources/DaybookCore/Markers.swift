@@ -9,6 +9,8 @@ public enum DaybookMarker: Equatable, Sendable {
     case done(eventID: String)
     case brief(date: String) // "2026-10-07"
     case ready(date: String)
+    /// An event's priority (calendar events have none of their own).
+    case priority(eventID: String, level: Int)
 
     public var url: URL {
         var components = URLComponents()
@@ -23,6 +25,9 @@ public enum DaybookMarker: Equatable, Sendable {
         case .ready(let date):
             components.host = "ready"
             components.queryItems = [URLQueryItem(name: "date", value: date)]
+        case .priority(let eventID, let level):
+            components.host = "priority"
+            components.queryItems = [URLQueryItem(name: "event", value: eventID), URLQueryItem(name: "level", value: String(level))]
         }
         return components.url!
     }
@@ -35,6 +40,9 @@ public enum DaybookMarker: Equatable, Sendable {
         case "done": guard let id = value("event") else { return nil }; self = .done(eventID: id)
         case "brief": guard let date = value("date") else { return nil }; self = .brief(date: date)
         case "ready": guard let date = value("date") else { return nil }; self = .ready(date: date)
+        case "priority":
+            guard let id = value("event"), let level = value("level").flatMap(Int.init) else { return nil }
+            self = .priority(eventID: id, level: level)
         default: return nil
         }
     }

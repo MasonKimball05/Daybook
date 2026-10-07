@@ -24,6 +24,8 @@
 	<string>1</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Daybook shows all your calendars in one place.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Daybook works out travel time to events with a place, so it can tell you when to leave.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>Daybook keeps your tasks and done marks in Reminders so they sync with your Mac.</string>
 	<key>UIBackgroundModes</key>

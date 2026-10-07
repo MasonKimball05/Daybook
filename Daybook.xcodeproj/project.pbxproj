@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		048A42C728F38A1AA68819F3 /* DaybookiOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E8A05E1DEF79482A06DCE1 /* DaybookiOSApp.swift */; };
 		1EE58AFE58C76C84AE58113C /* EKConvert.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FE2C1366995EC5886CEC190 /* EKConvert.swift */; };
+		20F0206564113216E07D334D /* LeaveBy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6D1477FC970206BF267FD0F /* LeaveBy.swift */; };
+		231F5BF442886BEF4A92CA6E /* WeekGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CF36DDCC7921B3273D8CABE /* WeekGrid.swift */; };
 		2C483D92870370842B9004AC /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CC971D973DAA09ADF9D56BC0 /* Assets.xcassets */; };
 		4305AA9C8155F4BB7A02C469 /* DaybookWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 556ED4D54B38B3C209888739 /* DaybookWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		53C70BFAADA38145D2E585B5 /* BriefNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C3CD99AA2E48E09C3875154 /* BriefNotifier.swift */; };
@@ -16,9 +18,11 @@
 		726E9FF95C1CFE933CE9914C /* DaybookCore in Frameworks */ = {isa = PBXBuildFile; productRef = CD54E913B6DA5FAF988AE49A /* DaybookCore */; };
 		7B2169EB831224D5C91146EE /* CalendarStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EEE58F5E83F78568F2DC08F /* CalendarStore.swift */; };
 		93E33ECFD690EAF75EBA3F8E /* DaybookCore in Frameworks */ = {isa = PBXBuildFile; productRef = DE9EEE816989CAE0CFA54917 /* DaybookCore */; };
+		A780F8F1566799C42C2FE547 /* AlertScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 787CC7E15F1A861262AEE79D /* AlertScheduler.swift */; };
 		C2C81CDBE0AE5646733AFA3F /* EKConvert.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FE2C1366995EC5886CEC190 /* EKConvert.swift */; };
 		D31E72B666648C0B9E78D5F4 /* Views.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05C056F861015193682754DD /* Views.swift */; };
 		D371458FE3C223E51ED6D905 /* BriefView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B89BC77C2159A3CC3E777DB1 /* BriefView.swift */; };
+		D660AB7A169958480665350D /* Intents.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA916A4736BBB2B32D8E714F /* Intents.swift */; };
 		E9AC68922F5DFDF402DD0948 /* MenuBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AFB3DDC1B842BA575794074 /* MenuBar.swift */; };
 /* End PBXBuildFile section */
 
@@ -51,14 +55,18 @@
 		0EEE58F5E83F78568F2DC08F /* CalendarStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarStore.swift; sourceTree = "<group>"; };
 		1C3CD99AA2E48E09C3875154 /* BriefNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BriefNotifier.swift; sourceTree = "<group>"; };
 		37B53994303E2831C334871A /* daybook */ = {isa = PBXFileReference; lastKnownFileType = folder; name = daybook; path = .; sourceTree = SOURCE_ROOT; };
+		3CF36DDCC7921B3273D8CABE /* WeekGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeekGrid.swift; sourceTree = "<group>"; };
 		3FE2C1366995EC5886CEC190 /* EKConvert.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EKConvert.swift; sourceTree = "<group>"; };
 		556ED4D54B38B3C209888739 /* DaybookWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = DaybookWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		58920288B9BB95E88DCF2DBC /* DaybookWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaybookWidget.swift; sourceTree = "<group>"; };
 		5AFB3DDC1B842BA575794074 /* MenuBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBar.swift; sourceTree = "<group>"; };
+		787CC7E15F1A861262AEE79D /* AlertScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertScheduler.swift; sourceTree = "<group>"; };
 		A9E8A05E1DEF79482A06DCE1 /* DaybookiOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaybookiOSApp.swift; sourceTree = "<group>"; };
 		B051D2C72C63BB97FDFD585C /* Daybook-iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Daybook-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		B89BC77C2159A3CC3E777DB1 /* BriefView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BriefView.swift; sourceTree = "<group>"; };
 		CC971D973DAA09ADF9D56BC0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		D6D1477FC970206BF267FD0F /* LeaveBy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeaveBy.swift; sourceTree = "<group>"; };
+		EA916A4736BBB2B32D8E714F /* Intents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Intents.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -132,6 +140,8 @@
 			children = (
 				1C3CD99AA2E48E09C3875154 /* BriefNotifier.swift */,
 				A9E8A05E1DEF79482A06DCE1 /* DaybookiOSApp.swift */,
+				EA916A4736BBB2B32D8E714F /* Intents.swift */,
+				D6D1477FC970206BF267FD0F /* LeaveBy.swift */,
 			);
 			name = DaybookiOS;
 			path = Sources/DaybookiOS;
@@ -140,11 +150,13 @@
 		BE90138026AF541F8B9B3390 /* Daybook */ = {
 			isa = PBXGroup;
 			children = (
+				787CC7E15F1A861262AEE79D /* AlertScheduler.swift */,
 				B89BC77C2159A3CC3E777DB1 /* BriefView.swift */,
 				0EEE58F5E83F78568F2DC08F /* CalendarStore.swift */,
 				3FE2C1366995EC5886CEC190 /* EKConvert.swift */,
 				5AFB3DDC1B842BA575794074 /* MenuBar.swift */,
 				05C056F861015193682754DD /* Views.swift */,
+				3CF36DDCC7921B3273D8CABE /* WeekGrid.swift */,
 			);
 			name = Daybook;
 			path = Sources/Daybook;
@@ -252,13 +264,17 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A780F8F1566799C42C2FE547 /* AlertScheduler.swift in Sources */,
 				53C70BFAADA38145D2E585B5 /* BriefNotifier.swift in Sources */,
 				D371458FE3C223E51ED6D905 /* BriefView.swift in Sources */,
 				7B2169EB831224D5C91146EE /* CalendarStore.swift in Sources */,
 				048A42C728F38A1AA68819F3 /* DaybookiOSApp.swift in Sources */,
 				C2C81CDBE0AE5646733AFA3F /* EKConvert.swift in Sources */,
+				D660AB7A169958480665350D /* Intents.swift in Sources */,
+				20F0206564113216E07D334D /* LeaveBy.swift in Sources */,
 				E9AC68922F5DFDF402DD0948 /* MenuBar.swift in Sources */,
 				D31E72B666648C0B9E78D5F4 /* Views.swift in Sources */,
+				231F5BF442886BEF4A92CA6E /* WeekGrid.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

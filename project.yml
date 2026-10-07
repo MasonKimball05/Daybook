@@ -31,6 +31,7 @@ targets:
         NSCalendarsFullAccessUsageDescription: Daybook shows all your calendars in one place.
         NSRemindersFullAccessUsageDescription: Daybook keeps your tasks and done marks in Reminders so they sync with your Mac.
         UILaunchScreen: {}
+        NSLocationWhenInUseUsageDescription: Daybook works out travel time to events with a place, so it can tell you when to leave.
         # Lets iOS wake Daybook now and then to look for the morning brief.
         UIBackgroundModes: [fetch]
         BGTaskSchedulerPermittedIdentifiers: [com.masonkimball.Daybook.refresh]
