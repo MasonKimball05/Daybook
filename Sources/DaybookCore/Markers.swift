@@ -49,8 +49,10 @@ public enum DaybookMarker: Equatable, Sendable {
     }
 
     public init?(_ url: URL?) {
+        // `daybook://sleep` and `daybook://work` have no query, so no items is fine.
         guard let url, url.scheme == "daybook",
-              let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems else { return nil }
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let items = components.queryItems ?? []
         func value(_ name: String) -> String? { items.first { $0.name == name }?.value }
         switch url.host() {
         case "done": guard let id = value("event") else { return nil }; self = .done(eventID: id)

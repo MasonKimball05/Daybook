@@ -69,7 +69,7 @@ struct ContentView: View {
                 CalendarFilter(store: store)
             }
             ToolbarItem {
-                Button { Task { await store.reload() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+                Button { Task { await store.sync() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }
                     .keyboardShortcut("r")
             }
         }

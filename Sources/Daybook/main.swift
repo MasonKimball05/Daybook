@@ -20,6 +20,24 @@ if CommandLine.arguments.contains("--post-brief") {
     let app = NSApplication.shared
     app.setActivationPolicy(.prohibited)
     app.run()
+} else if CommandLine.arguments.contains("--check-sync") {
+    // `open -n -g -W -a Daybook --args --check-sync`: what this Mac reads from the
+    // iPhone through the Daybook list, written to sync-check.txt, for troubleshooting.
+    Task { @MainActor in
+        let store = CalendarStore()
+        await store.checkAccess()
+        await store.reload()
+        let report = store.timeReport(weekOf: TimeReport.weekStart(of: .now))
+        let lines = ["reminders: \(store.reminderAccess)", "events: \(store.eventAccess)",
+                     "sleep nights: \(store.sleepNights.count), newest ends \(store.sleepNights.last?.end.formatted() ?? "-")",
+                     "this week slept: \(report.days.map { $0.slept.map { String(format: "%.1f", $0) } ?? "-" })",
+                     "work sessions: \(store.workSessions.count)"]
+        try? Data((lines.joined(separator: "\n") + "\n").utf8).write(to: DailySummary.folder.appending(path: "sync-check.txt"))
+        exit(0)
+    }
+    let app = NSApplication.shared
+    app.setActivationPolicy(.prohibited)
+    app.run()
 } else if CommandLine.arguments.contains("--bills") {
     // `open -n -g -a Daybook --args --bills`: the weekly subscriptions scan, on its
     // own so it never holds up the morning export.

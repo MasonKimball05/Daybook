@@ -816,4 +816,11 @@ func event(_ title: String, _ start: Date, _ end: Date, allDay: Bool = false, ca
         #expect(back.problems.isEmpty)
         #expect(Work.Snapshot.decodeShared("not base64") == nil)
     }
+
+    @Test func markersWithoutAQueryReadBack() {
+        for marker in [DaybookMarker.sleep, .work] {
+            #expect(DaybookMarker(marker.url) == marker)
+            #expect(DaybookMarker(url: nil, notes: marker.url.absoluteString + "\n\n[]") == marker)
+        }
+    }
 }

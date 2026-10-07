@@ -246,6 +246,17 @@ final class CalendarStore {
 
     /// Events from yesterday through four weeks out (plus the month on screen),
     /// open reminders, today's completed ones, and the done marks.
+    /// The Refresh button: asks iCloud and the other accounts for anything new
+    /// (what arrives comes in through EKEventStoreChanged, which reloads again),
+    /// re-reads what's here now, and on the Mac gathers coding work again.
+    func sync() async {
+        store.refreshSourcesIfNecessary()
+        await reload()
+        #if os(macOS)
+        await refreshWork()
+        #endif
+    }
+
     func reload() async {
         let calendar = Calendar.current
         var start = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: .now))!
