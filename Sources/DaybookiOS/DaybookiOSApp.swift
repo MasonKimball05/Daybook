@@ -14,6 +14,8 @@ struct DaybookiOSApp: App {
     @State private var query = ""
     @State private var showingSettings = false
     @State private var planning = false
+    @State private var searching = false
+    @State private var searchFieldActive = false
 
     var body: some Scene {
         WindowGroup {
@@ -25,6 +27,8 @@ struct DaybookiOSApp: App {
                                 DayListView(store: store, start: .now, days: 1)
                                     .navigationTitle("Today")
                                     .toolbar {
+                                        // Search lives here: a sixth tab would push Time into "More".
+                                        Button { searching = true } label: { Label("Search", systemImage: "magnifyingglass") }
                                         // Today's brief again, and the ones before it.
                                         Button { showingHistory = true } label: { Label("Morning Briefs", systemImage: "sun.horizon") }
                                         Button { planning = true } label: { Label("Plan My Day", systemImage: "wand.and.stars") }
@@ -41,20 +45,10 @@ struct DaybookiOSApp: App {
                         }
                         Tab("Month", systemImage: "calendar") {
                             NavigationStack {
+                                // The month's own header says "October 2026"; no title above it.
                                 MonthView(store: store)
-                                    .navigationTitle("Month")
                                     .toolbarTitleDisplayMode(.inline)
                                     .toolbar { newEventButton }
-                            }
-                        }
-                        Tab("Time", systemImage: "chart.bar") {
-                            NavigationStack { TimeView(store: store).toolbar(.hidden, for: .navigationBar) }
-                        }
-                        Tab("Search", systemImage: "magnifyingglass", role: .search) {
-                            NavigationStack {
-                                SearchResultsView(store: store, query: query)
-                                    .navigationTitle("Search")
-                                    .searchable(text: $query, prompt: "Events and tasks")
                             }
                         }
                         Tab("Tasks", systemImage: "checklist") {
@@ -66,6 +60,9 @@ struct DaybookiOSApp: App {
                                         Button { showingSettings = true } label: { Label("Alerts", systemImage: "gearshape") }
                                     }
                             }
+                        }
+                        Tab("Time", systemImage: "chart.bar") {
+                            NavigationStack { TimeView(store: store).toolbar(.hidden, for: .navigationBar) }
                         }
                     }
                     .refreshable { await store.reload() }
@@ -84,6 +81,23 @@ struct DaybookiOSApp: App {
                     }
                     .sheet(isPresented: $addingEvent) { EventEditor(store: store) }
                     .sheet(isPresented: $planning) { PlanDayView(store: store) }
+                    .sheet(isPresented: $searching, onDismiss: { query = ""; searchFieldActive = false }) {
+                        NavigationStack {
+                            SearchResultsView(store: store, query: query)
+                                .navigationTitle("Search")
+                                .navigationBarTitleDisplayMode(.inline)
+                                .searchable(text: $query, isPresented: $searchFieldActive,
+                                            placement: .navigationBarDrawer(displayMode: .always), prompt: "Events and tasks")
+                                // Ready to type once the sheet has slid up (any sooner and iOS ignores it).
+                                .task {
+                                    try? await Task.sleep(for: .milliseconds(400))
+                                    searchFieldActive = true
+                                }
+                                .toolbar {
+                                    ToolbarItem(placement: .confirmationAction) { Button("Done") { searching = false } }
+                                }
+                        }
+                    }
                     .sheet(isPresented: $showingSettings) {
                         NavigationStack {
                             AlertSettingsView(store: store)
@@ -106,6 +120,9 @@ struct DaybookiOSApp: App {
                 }
             }
             .task {
+                #if DEBUG && targetEnvironment(simulator)
+                await DemoSeed.runIfAsked()
+                #endif
                 await store.checkAccess()
                 showNewBrief()
                 await BriefNotifier.requestPermission()

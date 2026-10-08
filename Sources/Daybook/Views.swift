@@ -147,13 +147,17 @@ struct DayListView: View {
                         Text("Nothing scheduled").foregroundStyle(.secondary)
                     }
                     ForEach(day.allDay) { EventRow(store: store, item: $0) }
-                    ForEach(Self.slots(day)) { slot in
+                    // Overdue tasks are already listed above. Ones due at a time go
+                    // in among the events; the rest follow them.
+                    let tasks = day.tasks.filter { task in !overdue.contains { $0.id == task.id } }
+                    ForEach(Self.slots(day, tasks: tasks.filter(\.dueHasTime), shortestFree: days > 1 ? 3600 : 0)) { slot in
                         switch slot {
                         case .event(let item): EventRow(store: store, item: item)
                         case .free(let block): FreeRow(store: store, block: block)
+                        case .task(let task): TaskRow(store: store, task: task, showDate: false)
                         }
                     }
-                    ForEach(day.tasks) { TaskRow(store: store, task: $0, showDate: false) }
+                    ForEach(tasks.filter { !$0.dueHasTime }) { TaskRow(store: store, task: $0, showDate: false) }
                     // Coding, in orange so it stands apart from the calendar.
                     ForEach(work.sessions) { SessionRow(session: $0) }
                     ForEach(work.activities) { ActivityRow(activity: $0) }
@@ -179,24 +183,29 @@ struct DayListView: View {
     enum Slot: Identifiable {
         case event(AgendaItem)
         case free(DateInterval)
+        case task(TaskItem)
         var id: String {
             switch self {
             case .event(let item): item.id
             case .free(let block): "free-\(block.start.timeIntervalSince1970)"
+            case .task(let task): "task-" + task.id
             }
         }
         var start: Date {
             switch self {
             case .event(let item): item.start
             case .free(let block): block.start
+            case .task(let task): task.due ?? .distantFuture
             }
         }
     }
 
-    static func slots(_ day: Agenda.Day) -> [Slot] {
+    /// The week leaves out free stretches under `shortestFree`, so seven days of
+    /// them don't crowd out the events.
+    static func slots(_ day: Agenda.Day, tasks: [TaskItem] = [], shortestFree: TimeInterval = 0) -> [Slot] {
         let isPast = Calendar.current.startOfDay(for: day.date) < Calendar.current.startOfDay(for: .now)
-        let free = isPast ? [] : FreeTime.blocks(on: day.date, events: day.timed)
-        return (day.timed.map(Slot.event) + free.map(Slot.free)).sorted { $0.start < $1.start }
+        let free = isPast ? [] : FreeTime.blocks(on: day.date, events: day.timed).filter { $0.duration >= shortestFree }
+        return (day.timed.map(Slot.event) + free.map(Slot.free) + tasks.map(Slot.task)).sorted { $0.start < $1.start }
     }
 
     static func heading(_ date: Date) -> String {

@@ -27,6 +27,7 @@
 		D660AB7A169958480665350D /* Intents.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA916A4736BBB2B32D8E714F /* Intents.swift */; };
 		D768C4035C44FC837F45771A /* WorkCollector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 489080A02DA9A03DBFBA8DCF /* WorkCollector.swift */; };
 		E9AC68922F5DFDF402DD0948 /* MenuBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AFB3DDC1B842BA575794074 /* MenuBar.swift */; };
+		FD762F35906FAB2679801A42 /* DemoSeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9477E627F3675E6FF4E75756 /* DemoSeed.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -67,6 +68,7 @@
 		712999AD29526EC9C152305C /* SleepReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepReader.swift; sourceTree = "<group>"; };
 		787CC7E15F1A861262AEE79D /* AlertScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertScheduler.swift; sourceTree = "<group>"; };
 		8BCB786EAA419418BCC1E9CF /* TimeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeView.swift; sourceTree = "<group>"; };
+		9477E627F3675E6FF4E75756 /* DemoSeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoSeed.swift; sourceTree = "<group>"; };
 		A9E8A05E1DEF79482A06DCE1 /* DaybookiOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaybookiOSApp.swift; sourceTree = "<group>"; };
 		B051D2C72C63BB97FDFD585C /* Daybook-iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Daybook-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		B89BC77C2159A3CC3E777DB1 /* BriefView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BriefView.swift; sourceTree = "<group>"; };
@@ -146,6 +148,7 @@
 			children = (
 				1C3CD99AA2E48E09C3875154 /* BriefNotifier.swift */,
 				A9E8A05E1DEF79482A06DCE1 /* DaybookiOSApp.swift */,
+				9477E627F3675E6FF4E75756 /* DemoSeed.swift */,
 				EA916A4736BBB2B32D8E714F /* Intents.swift */,
 				D6D1477FC970206BF267FD0F /* LeaveBy.swift */,
 				712999AD29526EC9C152305C /* SleepReader.swift */,
@@ -278,6 +281,7 @@
 				D371458FE3C223E51ED6D905 /* BriefView.swift in Sources */,
 				7B2169EB831224D5C91146EE /* CalendarStore.swift in Sources */,
 				048A42C728F38A1AA68819F3 /* DaybookiOSApp.swift in Sources */,
+				FD762F35906FAB2679801A42 /* DemoSeed.swift in Sources */,
 				C2C81CDBE0AE5646733AFA3F /* EKConvert.swift in Sources */,
 				D660AB7A169958480665350D /* Intents.swift in Sources */,
 				20F0206564113216E07D334D /* LeaveBy.swift in Sources */,

@@ -113,8 +113,9 @@ struct TimeView: View {
                     }
                 }
                 // The card for the day under the pointer, beside its bar (not over
-                // it): to the right early in the week, to the left later on.
-                if let selected {
+                // it): to the right early in the week, to the left later on. A
+                // phone has no room beside a bar; it shows the card under the chart.
+                if Self.cardBesideBar, let selected {
                     let late = (report.days.firstIndex { $0.date == selected.date } ?? 0) >= 4
                     // An invisible rectangle over the day's whole column (wider than
                     // its bar), so a card beside it never covers the bar.
@@ -135,7 +136,8 @@ struct TimeView: View {
                         if let date = value.as(Date.self), let day = report.days.first(where: { calendar.isDate($0.date, inSameDayAs: date) }) {
                             VStack(spacing: 1) {
                                 Text(date.formatted(.dateTime.weekday(.abbreviated)))
-                                Text("\(TimeReport.hours(day.free)) free").foregroundStyle(.secondary)
+                                // "6.5h free" is too wide for a phone's seventh of the screen.
+                                Text(TimeReport.hours(day.free) + (Self.cardBesideBar ? " free" : "")).foregroundStyle(.secondary)
                             }
                             .font(.caption2)
                         }
@@ -143,6 +145,8 @@ struct TimeView: View {
                 }
             }
             .chartYAxis { AxisMarks { value in AxisGridLine(); AxisValueLabel { if let h = value.as(Double.self) { Text("\(Int(h))h") } } } }
+            // On a phone the legend runs off the side; "By kind" below has the same colors and names.
+            .chartLegend(Self.cardBesideBar ? .visible : .hidden)
             .chartLegend(position: .bottom, alignment: .leading)
             // Hover (Mac) or tap (iPhone): which day, and how high up the bar.
             .chartOverlay { proxy in
@@ -167,8 +171,22 @@ struct TimeView: View {
                 }
             }
             .frame(height: 260)
+            if !Self.cardBesideBar {
+                if let selected {
+                    DayCard(day: selected, names: names, labels: labels, colors: colors, segment: segment(in: selected, names: names), width: nil)
+                } else {
+                    Text("Tap a bar for that day\u{2019}s hours; free hours are under each day.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
         }
     }
+
+    #if os(macOS)
+    private static let cardBesideBar = true
+    #else
+    private static let cardBesideBar = false
+    #endif
 
     /// Turns a point on the chart into the day and the height (in hours) under it.
     private func pick(_ point: CGPoint, proxy: ChartProxy, geometry: GeometryProxy) {
@@ -225,6 +243,8 @@ private struct DayCard: View {
     let labels: [String]
     let colors: [Color]
     let segment: String?
+    /// Fixed beside a bar on the Mac; nil fills the width (under the chart on a phone).
+    var width: CGFloat? = 240
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -252,7 +272,8 @@ private struct DayCard: View {
             .foregroundStyle(.secondary)
         }
         .padding(8)
-        .frame(width: 240)
+        .frame(width: width)
+        .frame(maxWidth: width == nil ? .infinity : nil, alignment: .leading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
         .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
     }
@@ -283,9 +304,9 @@ private struct Breakdown: View {
 
     /// Room for "Chapter Events - Mason Kimball – Calendar" on the Mac; a phone has less.
     #if os(macOS)
-    static let nameWidth: CGFloat = 320
+    static let nameWidth: CGFloat = 320, nameLines = 1
     #else
-    static let nameWidth: CGFloat = 150
+    static let nameWidth: CGFloat = 150, nameLines = 3 // long calendar names wrap
     #endif
 
     var body: some View {
@@ -295,7 +316,7 @@ private struct Breakdown: View {
             ForEach(rows, id: \.name) { row in
                 HStack(spacing: 10) {
                     Circle().fill(row.color).frame(width: 8, height: 8)
-                    Text(row.name).lineLimit(1).frame(width: Self.nameWidth, alignment: .leading)
+                    Text(row.name).lineLimit(Self.nameLines).frame(width: Self.nameWidth, alignment: .leading)
                     GeometryReader { geometry in
                         RoundedRectangle(cornerRadius: 3).fill(row.color.opacity(0.75))
                             .frame(width: max(geometry.size.width * row.hours / most, 3))

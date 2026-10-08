@@ -201,6 +201,9 @@ final class CalendarStore {
     @ObservationIgnored private var observer: NSObjectProtocol?
 
     init() {
+        // Known at once, so the app doesn't flash "needs access" while it starts.
+        eventAccess = Self.access(.event)
+        reminderAccess = Self.access(.reminder)
         hiddenCalendars = Set(UserDefaults.standard.stringArray(forKey: "hiddenCalendars") ?? [])
         // Another app (or iCloud) changed a calendar or reminder: refresh.
         observer = NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: store, queue: .main) { [weak self] _ in
@@ -212,16 +215,17 @@ final class CalendarStore {
 
     /// Picks up access granted on an earlier launch, without asking again.
     func checkAccess() async {
-        func status(_ type: EKEntityType) -> Access {
-            switch EKEventStore.authorizationStatus(for: type) {
-            case .fullAccess: .granted
-            case .notDetermined: .unknown
-            default: .denied
-            }
-        }
-        eventAccess = status(.event)
-        reminderAccess = status(.reminder)
+        eventAccess = Self.access(.event)
+        reminderAccess = Self.access(.reminder)
         await reload()
+    }
+
+    private static func access(_ type: EKEntityType) -> Access {
+        switch EKEventStore.authorizationStatus(for: type) {
+        case .fullAccess: .granted
+        case .notDetermined: .unknown
+        default: .denied
+        }
     }
 
     func requestAccess() async {
@@ -516,8 +520,39 @@ final class CalendarStore {
     func timeReport(weekOf date: Date) -> TimeReport {
         let start = TimeReport.weekStart(of: date)
         let end = Calendar.current.date(byAdding: .day, value: 7, to: start)!
+        #if DEBUG
+        // `-demoTime` (a debug launch argument): a made-up week, for checking the
+        // Time tab's layout in the Simulator, which has no calendars or Health.
+        if ProcessInfo.processInfo.arguments.contains("-demoTime") { return Self.demoReport(start) }
+        #endif
         return TimeReport(start: start, days: 7, events: events(from: start, to: end), snapshot: work, nights: sleepNights)
     }
+
+    #if DEBUG
+    private static func demoReport(_ start: Date) -> TimeReport {
+        let calendar = Calendar.current
+        func at(_ day: Int, _ hour: Double) -> Date {
+            calendar.date(byAdding: .day, value: day, to: start)!.addingTimeInterval(hour * 3600)
+        }
+        var events: [AgendaItem] = []
+        var nights: [Sleep.Night] = []
+        var commits: [Work.Commit] = []
+        for day in 0..<7 {
+            nights.append(Sleep.Night(start: at(day - 1, 23.5), end: at(day, 7.5), asleep: 7.4 * 3600))
+            if (1...5).contains(day) {
+                events.append(AgendaItem(id: "c\(day)", title: "Class", start: at(day, 9), end: at(day, 11.5), isAllDay: false,
+                                         calendar: "Chapter Events - Mason Kimball", color: "#3478F6"))
+                events.append(AgendaItem(id: "w\(day)", title: "Shift", start: at(day, 13), end: at(day, 16), isAllDay: false,
+                                         calendar: "Home", color: "#34C759"))
+            }
+            events.append(AgendaItem(id: "l\(day)", title: "Study", start: at(day, 19), end: at(day, 20.5), isAllDay: false,
+                                     calendar: TimeReport.logCalendar))
+            commits += [17, 18, 21.5].map { Work.Commit(hash: "\(day)-\($0)", repo: day % 2 == 0 ? "daybook" : "sift", date: at(day, $0), message: "Demo") }
+        }
+        let work = Work.Snapshot(gathered: .now, commits: commits, activities: [], problems: [])
+        return TimeReport(start: start, days: 7, events: events, snapshot: work, nights: nights)
+    }
+    #endif
 
     /// New nights from Health (on the iPhone): keep them, and share them with the
     /// Mac through the Daybook list when they've changed.
