@@ -567,19 +567,11 @@ final class CalendarStore {
             sleepStatus = "\(nights.count) nights from Health, but the Daybook list in Reminders isn\u{2019}t there to share them."
             return
         }
-        await remove { $0 == .sleep }
-        let reminder = EKReminder(eventStore: store)
-        reminder.calendar = list
-        reminder.title = "Sleep from Health"
-        reminder.url = DaybookMarker.sleep.url
-        reminder.notes = DaybookMarker.sleep.url.absoluteString + "\n\n" + json
-        reminder.isCompleted = true
-        do {
-            try store.save(reminder, commit: true)
+        if await postShared(.sleep, title: "Sleep from Health", body: json, in: list) {
             UserDefaults.standard.set(json, forKey: "postedSleep")
             sleepStatus = "\(nights.count) nights from Health, shared with the Mac."
-        } catch {
-            sleepStatus = "\(nights.count) nights from Health; sharing with the Mac failed: \(error.localizedDescription)"
+        } else {
+            sleepStatus = "\(nights.count) nights from Health; sharing with the Mac failed."
         }
     }
 
@@ -659,14 +651,7 @@ final class CalendarStore {
         guard let text = trimmed.encodedForSharing(),
               key != UserDefaults.standard.string(forKey: "postedWork"),
               let list = doneMarksList(create: true) else { return }
-        await remove { $0 == .work }
-        let reminder = EKReminder(eventStore: store)
-        reminder.calendar = list
-        reminder.title = "Coding work from the Mac"
-        reminder.url = DaybookMarker.work.url
-        reminder.notes = DaybookMarker.work.url.absoluteString + "\n\n" + text
-        reminder.isCompleted = true
-        if (try? store.save(reminder, commit: true)) != nil {
+        if await postShared(.work, title: "Coding work from the Mac", body: text, in: list) {
             UserDefaults.standard.set(key, forKey: "postedWork")
         }
     }
@@ -977,6 +962,29 @@ final class CalendarStore {
             if let reminder = store.calendarItem(withIdentifier: entry.reminderID) as? EKReminder {
                 try? store.remove(reminder, commit: true)
             }
+        }
+    }
+
+    /// Puts `body` in the one reminder for `marker` (sleep, work): edits the one
+    /// there in place, rather than deleting and making a new one each time
+    /// (fewer changes for iCloud to sync), and clears out any extra copies.
+    @discardableResult
+    private func postShared(_ marker: DaybookMarker, title: String, body: String, in list: EKCalendar) async -> Bool {
+        let matching = await fetchEntries(in: doneLists()).filter { $0.marker == marker }
+            .compactMap { store.calendarItem(withIdentifier: $0.reminderID) as? EKReminder }
+        let reminder = matching.first { $0.calendar.calendarIdentifier == list.calendarIdentifier } ?? EKReminder(eventStore: store)
+        for extra in matching where extra !== reminder { try? store.remove(extra, commit: false) }
+        reminder.calendar = list
+        reminder.title = title
+        reminder.url = marker.url
+        reminder.notes = marker.url.absoluteString + "\n\n" + body
+        reminder.isCompleted = true
+        do {
+            try store.save(reminder, commit: false)
+            try store.commit()
+            return true
+        } catch {
+            return false
         }
     }
 

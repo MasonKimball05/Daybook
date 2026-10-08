@@ -344,6 +344,18 @@ struct LogActivitySheet: View {
 
     private static let lengths: [(String, Int)] = [("30m", 30), ("45m", 45), ("1h", 60), ("1.5h", 90), ("2h", 120), ("3h", 180)]
 
+    private var endedNowButton: some View {
+        Button("Ended Now") {
+            // Keep the length; finish now (to the quarter hour), today.
+            let length = Double(minutes) * 60
+            let end = Self.roundedNow()
+            day = Calendar.current.startOfDay(for: end.addingTimeInterval(-length))
+            to = end
+            from = end.addingTimeInterval(-length)
+        }
+        .controlSize(.small)
+    }
+
     init(store: CalendarStore) {
         self.store = store
         let end = Self.roundedNow()
@@ -425,18 +437,19 @@ struct LogActivitySheet: View {
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
                                 .tint(minutes == length ? .accentColor : nil)
+                                // "1.5h" stays on one line, like the rest.
+                                .lineLimit(1)
+                                .fixedSize()
                         }
+                        #if os(macOS)
                         Spacer()
-                        Button("Ended Now") {
-                            // Keep the length; finish now (to the quarter hour), today.
-                            let length = Double(minutes) * 60
-                            let end = Self.roundedNow()
-                            day = Calendar.current.startOfDay(for: end.addingTimeInterval(-length))
-                            to = end
-                            from = end.addingTimeInterval(-length)
-                        }
-                        .controlSize(.small)
+                        endedNowButton
+                        #endif
                     }
+                    #if os(iOS)
+                    // A phone has no room for it beside the lengths.
+                    endedNowButton
+                    #endif
                 } header: {
                     Text("Time")
                 } footer: {
