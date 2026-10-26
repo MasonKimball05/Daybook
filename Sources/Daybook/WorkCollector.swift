@@ -3,11 +3,11 @@ import DaybookCore
 import Foundation
 
 /// Gathers coding work on the Mac: commits (yours only) from every repo in
-/// ~/Documents/GitHub, and pull requests, issues, reviews and comments from
+/// ~/projects/GitHub, and pull requests, issues, reviews and comments from
 /// GitHub through the `gh` command line, which is already signed in. Reads
 /// commit times, messages and repo names; never code. Nothing leaves the Mac.
 enum WorkCollector {
-    static let reposFolder = FileManager.default.homeDirectoryForCurrentUser.appending(path: "Documents/GitHub")
+    static let reposFolder = FileManager.default.homeDirectoryForCurrentUser.appending(path: "projects/GitHub")
 
     /// Takes a few seconds (a `git log` per repo, a few GitHub requests), so run it
     /// off the main thread.
