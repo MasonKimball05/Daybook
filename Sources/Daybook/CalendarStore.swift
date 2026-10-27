@@ -37,6 +37,20 @@ final class CalendarStore {
     private(set) var reminderAccess = Access.unknown
     private(set) var calendars: [CalendarInfo] = []
     private(set) var events: [AgendaItem] = []
+    /// The first read from EventKit is in. Until then an empty list means "not
+    /// loaded yet", not "nothing scheduled".
+    private(set) var loaded = false
+    /// The dates the last load read events for. A month or week moved to outside
+    /// them shows a spinner until the reload it started comes back.
+    private(set) var loadedRange: (start: Date, end: Date)?
+
+    /// Whether `events` holds everything between these dates yet.
+    func hasEvents(from start: Date, to end: Date) -> Bool {
+        guard loaded else { return false }
+        guard eventAccess == .granted else { return true }
+        guard let loadedRange else { return false }
+        return loadedRange.start <= start && end <= loadedRange.end
+    }
     private(set) var tasks: [TaskItem] = []
     /// Tasks completed today, so they can be seen (crossed out) and undone.
     private(set) var completedToday: [TaskItem] = []
@@ -162,6 +176,13 @@ final class CalendarStore {
         didSet { UserDefaults.standard.set(Array(hiddenCalendars), forKey: "hiddenCalendars"); Task { await reload() } }
     }
 
+    /// The calendars the current Focus shows, from Daybook's Focus filter (iPhone
+    /// Settings ▸ Focus), or nil when there's no filter. On top of hiddenCalendars.
+    nonisolated static var focusCalendars: Set<String>? {
+        get { UserDefaults.standard.stringArray(forKey: "focusCalendars").map(Set.init) }
+        set { UserDefaults.standard.set(newValue.map(Array.init), forKey: "focusCalendars") }
+    }
+
     /// A range the month view needs, on top of the usual next four weeks.
     var extraRange: (start: Date, end: Date)? {
         didSet { Task { await reload() } }
@@ -261,7 +282,37 @@ final class CalendarStore {
         #endif
     }
 
+    /// One reload at a time: calls that arrive while one runs (launch, coming back
+    /// to the app, and EventKit's change notices often land together) share a
+    /// single follow-up pass, so an older read never overwrites a newer one.
     func reload() async {
+        if let queuedReload { return await queuedReload.value }
+        let previous = currentReload
+        let task = Task {
+            await previous?.value
+            queuedReload = nil
+            await load()
+        }
+        queuedReload = task
+        currentReload = task
+        await task.value
+    }
+
+    @ObservationIgnored private var currentReload: Task<Void, Never>?
+    @ObservationIgnored private var queuedReload: Task<Void, Never>?
+
+    /// Runs EventKit's synchronous reads on a background thread. Reading two
+    /// months of events across every account can take EventKit many seconds on a
+    /// cold launch; on the main actor that held up the app's first frame.
+    private func offMain<T>(_ work: @escaping @Sendable () -> T) async -> T {
+        await Task.detached(priority: .userInitiated) { Unchecked(value: work()) }.value.value
+    }
+
+    /// EventKit objects handed back from a background read. They're safe to read
+    /// from any thread; they just aren't marked Sendable.
+    private struct Unchecked<Value>: @unchecked Sendable { let value: Value }
+
+    private func load() async {
         let calendar = Calendar.current
         var start = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: .now))!
         // Two months ahead, for the deadline countdowns.
@@ -272,23 +323,26 @@ final class CalendarStore {
         }
 
         if eventAccess == .granted {
-            let all = store.calendars(for: .event)
+            let hiddenCalendars = hiddenCalendars
+            let focus = Self.focusCalendars
+            let (all, found) = await offMain { [store, start, end] in
+                let all = store.calendars(for: .event)
+                let visible = all.filter { !hiddenCalendars.contains($0.calendarIdentifier) && focus?.contains($0.calendarIdentifier) != false }
+                // No calendars would mean every calendar, so check first.
+                let found = visible.isEmpty ? [] : store.events(matching: store.predicateForEvents(withStart: start, end: end, calendars: visible))
+                return (all, found)
+            }
             calendars = all.map { CalendarInfo(id: $0.calendarIdentifier, title: $0.title, color: EKConvert.hex($0.cgColor), account: $0.source?.title ?? "") }
                 .sorted { ($0.account, $0.title) < ($1.account, $1.title) }
-            let visible = all.filter { !hiddenCalendars.contains($0.calendarIdentifier) }
-            if visible.isEmpty {
-                events = []
-            } else {
-                let predicate = store.predicateForEvents(withStart: start, end: end, calendars: visible)
-                let found = store.events(matching: predicate)
-                events = found.map(EKConvert.item)
-                ekEvents = Dictionary(zip(events.map(\.id), found), uniquingKeysWith: { first, _ in first })
-            }
+            events = found.map(EKConvert.item)
+            ekEvents = Dictionary(zip(events.map(\.id), found), uniquingKeysWith: { first, _ in first })
+            loadedRange = (start, end)
         }
         if reminderAccess == .granted {
-            let daybookLists = doneLists()
+            let allLists = await offMain { [store] in store.calendars(for: .reminder) }
+            let daybookLists = allLists.filter { $0.title == Self.doneListName }
             let hidden = Set(daybookLists.map(\.calendarIdentifier))
-            let lists = store.calendars(for: .reminder).filter { !hidden.contains($0.calendarIdentifier) }
+            let lists = allLists.filter { !hidden.contains($0.calendarIdentifier) }
             tasks = await fetch(store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: lists))
             completedToday = await fetch(store.predicateForCompletedReminders(
                 withCompletionDateStarting: calendar.startOfDay(for: .now), ending: nil, calendars: lists))
@@ -319,6 +373,7 @@ final class CalendarStore {
                 if case .brief(let date) = entry.marker { PostedBrief(date: date, markdown: entry.body, version: entry.reminderID) } else { nil }
             }.sorted { $0.date > $1.date }
         }
+        loaded = true
         exportSummary()
         #if os(macOS)
         if reminderAccess == .granted && eventAccess == .granted { await syncCanvas() }
@@ -329,8 +384,10 @@ final class CalendarStore {
         #endif
         await AlertScheduler.reschedule(self)
         #if os(iOS)
-        // Keep the home screen widget in step with what the app shows.
+        // Keep the home screen widget, the Live Activity and Spotlight in step with what the app shows.
         WidgetCenter.shared.reloadAllTimelines()
+        await NextUp.refresh(self)
+        Spotlight.index(self)
         #endif
     }
 
@@ -448,7 +505,7 @@ final class CalendarStore {
         let start = calendar.date(byAdding: .day, value: -180, to: calendar.startOfDay(for: .now))!
         let end = calendar.date(byAdding: .day, value: 360, to: start)!
         // Every calendar, so hiding the Canvas calendar in Daybook doesn't stop this.
-        let assignments = store.events(matching: store.predicateForEvents(withStart: start, end: end, calendars: nil))
+        let assignments = await offMain { [store] in store.events(matching: store.predicateForEvents(withStart: start, end: end, calendars: nil)) }
             .filter { $0.calendarItemExternalIdentifier?.hasPrefix("event-assignment-") == true }
             .map(EKConvert.item)
             .compactMap(Canvas.assignment)

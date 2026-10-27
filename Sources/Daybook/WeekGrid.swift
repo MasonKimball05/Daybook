@@ -61,6 +61,9 @@ struct WeekGridView: View {
         return HStack {
             Text("\(weekStart.formatted(.dateTime.month(.abbreviated).day())) \u{2013} \(end.formatted(.dateTime.month(.abbreviated).day().year()))")
                 .font(.title2.weight(.semibold))
+            if !store.hasEvents(from: weekStart, to: Calendar.current.date(byAdding: .day, value: 7, to: weekStart)!) {
+                ProgressView().controlSize(.small).accessibilityLabel("Loading the week")
+            }
             Spacer()
             Button { shift(-1) } label: { Image(systemName: "chevron.left") }
                 .keyboardShortcut(.leftArrow, modifiers: .command)

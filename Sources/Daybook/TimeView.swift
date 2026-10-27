@@ -44,6 +44,10 @@ struct TimeView: View {
                 #if os(iOS)
                 if let status = store.sleepStatus {
                     Label(status, systemImage: "bed.double").font(.caption).foregroundStyle(.secondary)
+                } else {
+                    // Every outcome of the Health read sets a status, so none yet means it's still going.
+                    Label { Text("Reading sleep from Health\u{2026}") } icon: { ProgressView().controlSize(.small) }
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 #endif
                 if !report.activities.isEmpty {
@@ -57,6 +61,8 @@ struct TimeView: View {
             .frame(maxWidth: 760, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
+        // Coding work comes from the Mac by way of Reminders, so it's missing until the first load.
+        .loading(!store.loaded, "Loading your week\u{2026}")
         .onAppear { store.extraRange = (week, Calendar.current.date(byAdding: .day, value: 7, to: week)!) }
         .sheet(isPresented: $logging) { LogActivitySheet(store: store) }
     }

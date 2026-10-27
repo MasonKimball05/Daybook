@@ -30,11 +30,16 @@
 	<string>Daybook works out travel time to events with a place, so it can tell you when to leave.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>Daybook keeps your tasks and done marks in Reminders so they sync with your Mac.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
 	</array>
 	<key>UILaunchScreen</key>
-	<dict/>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+	</dict>
 </dict>
 </plist>

@@ -13,6 +13,8 @@ struct DaybookWidgets: WidgetBundle {
     var body: some Widget {
         TodayWidget()
         DeadlinesWidget()
+        NextEventActivity()
+        QuickAddControl()
     }
 }
 

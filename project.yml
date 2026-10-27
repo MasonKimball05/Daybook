@@ -19,6 +19,8 @@ targets:
           - main.swift
           - MailReader.swift
       - path: Resources/Assets.xcassets
+      # The Live Activity and the Add Task control, shared with the widget.
+      - path: Sources/Shared
     dependencies:
       - package: DaybookKit
         product: DaybookCore
@@ -36,11 +38,15 @@ targets:
       properties:
         NSCalendarsFullAccessUsageDescription: Daybook shows all your calendars in one place.
         NSRemindersFullAccessUsageDescription: Daybook keeps your tasks and done marks in Reminders so they sync with your Mac.
-        UILaunchScreen: {}
+        # The app's own background (white, or black in dark mode) while it starts.
+        UILaunchScreen:
+          UIColorName: LaunchBackground
         NSHealthShareUsageDescription: Daybook reads your sleep from Health, so the weekly recap counts free time from when you woke to when you went to sleep.
         NSLocationWhenInUseUsageDescription: Daybook works out travel time to events with a place, so it can tell you when to leave.
         # Lets iOS wake Daybook now and then to look for the morning brief.
         UIBackgroundModes: [fetch]
+        # The next event on the lock screen and in the Dynamic Island.
+        NSSupportsLiveActivities: true
         BGTaskSchedulerPermittedIdentifiers: [com.masonkimball.Daybook.refresh]
     settings:
       base:
@@ -62,6 +68,7 @@ targets:
     sources:
       - path: Sources/DaybookWidget
       - path: Sources/Daybook/EKConvert.swift
+      - path: Sources/Shared
     dependencies:
       - package: DaybookKit
         product: DaybookCore

@@ -119,6 +119,8 @@ struct DayListView: View {
     var showsQuickAdd = true
     /// New tasks typed here land on this day unless they say otherwise (the month view's selected day).
     var quickAddDate: Date? = nil
+    /// Goes up to put the cursor in the quick-add field (the iPhone's Add Task control).
+    var quickAddFocus = 0
 
     var body: some View {
         // Canvas assignments show as their tasks, not again as calendar items.
@@ -128,7 +130,7 @@ struct DayListView: View {
         let overdue = isToday || days > 1 ? store.tasks.filter { $0.isOverdue(now: .now, calendar: .current) } : []
         List {
             if days == 1 && showsQuickAdd {
-                QuickAddField(store: store, defaultDate: quickAddDate)
+                QuickAddField(store: store, defaultDate: quickAddDate, focusRequest: quickAddFocus)
             }
             if isToday && !store.countdowns.isEmpty {
                 Section("Counting down") {
@@ -173,6 +175,10 @@ struct DayListView: View {
         }
         .listStyle(.inset)
         .scrollDismissesKeyboard(.immediately)
+        // Until EventKit answers, the empty list would say "Nothing scheduled".
+        .loading(!store.hasEvents(from: Calendar.current.startOfDay(for: start),
+                                  to: Calendar.current.date(byAdding: .day, value: days, to: Calendar.current.startOfDay(for: start))!),
+                 "Loading your calendar\u{2026}")
         #if os(macOS)
         // Today's commits: gather again if the last look is over 10 minutes old.
         .task { if isToday { await store.refreshWorkIfStale() } }
@@ -220,9 +226,11 @@ struct DayListView: View {
 struct DoneButton: View {
     let done: Bool
     let action: () -> Void
+    /// Counts taps, so the haptic follows a tap here and not a change synced from the Mac.
+    @State private var taps = 0
 
     var body: some View {
-        Button(action: action) {
+        Button { taps += 1; action() } label: {
             Image(systemName: done ? "checkmark.circle.fill" : "circle")
                 .font(.title3)
                 .foregroundStyle(done ? Color.green : Color.secondary)
@@ -230,6 +238,7 @@ struct DoneButton: View {
         }
         .buttonStyle(.plain)
         .help(done ? "Mark not done" : "Mark done")
+        .sensoryFeedback(done ? .selection : .success, trigger: taps)
     }
 }
 
@@ -294,6 +303,13 @@ struct EventRow: View {
             .presentationDetents([.medium, .large])
         }
         #endif
+        // Swipe right to check it off, like Mail's swipe to mark read.
+        .swipeActions(edge: .leading) {
+            Button { store.setDone(item, !done) } label: {
+                Label(done ? "Not Done" : "Done", systemImage: done ? "arrow.uturn.backward" : "checkmark")
+            }
+            .tint(done ? .gray : .green)
+        }
         .contextMenu {
             Button("Show Details") { showingDetails = true }
             Button(done ? "Mark Not Done" : "Mark Done") { store.setDone(item, !done) }
@@ -313,6 +329,7 @@ struct EventDetailView: View {
     @State private var editing = false
     @State private var changed = false
     @State private var travel: Int?
+    @State private var findingTravel = false
 
     var body: some View {
         let details = store.details(for: item)
@@ -367,6 +384,9 @@ struct EventDetailView: View {
                             Label("\(travel) min \(walking ? "walk" : "drive") \u{00B7} leave by \(leave.formatted(date: .omitted, time: .shortened))",
                                   systemImage: walking ? "figure.walk" : "car.fill")
                                 .font(.callout).foregroundStyle(.secondary)
+                        } else if findingTravel {
+                            Label { Text("Working out travel time\u{2026}") } icon: { ProgressView().controlSize(.small) }
+                                .font(.callout).foregroundStyle(.secondary)
                         }
                         #endif
                         if let maps = mapsURL(location) {
@@ -416,7 +436,12 @@ struct EventDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         #if os(iOS)
-        .task { if item.end > .now { travel = await LeaveBy.travelMinutes(to: item, walking: AlertScheduler.settings.walking) } }
+        .task {
+            guard item.end > .now else { return }
+            findingTravel = LeaveBy.allowed && !item.isAllDay
+            travel = await LeaveBy.travelMinutes(to: item, walking: AlertScheduler.settings.walking)
+            findingTravel = false
+        }
         #endif
         // After an edit or delete these details are out of date, so close them too.
         .sheet(isPresented: $editing, onDismiss: { if changed { dismiss() } }) {
@@ -737,6 +762,8 @@ struct UndoBanner: View {
             .background(.regularMaterial, in: Capsule())
             .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
             .padding(.bottom, 12)
+            // Flick it down to put it away.
+            .gesture(DragGesture(minimumDistance: 10).onEnded { if $0.translation.height > 20 { store.dismissUndo() } })
             .transition(.move(edge: .bottom).combined(with: .opacity))
             .id(action.id)
         }
@@ -760,7 +787,9 @@ struct PlanDayView: View {
         let placed = Set(slots.map(\.id))
         NavigationStack {
             List {
-                if candidates.isEmpty {
+                if !store.loaded {
+                    // Nothing until the tasks are in; the spinner covers this.
+                } else if candidates.isEmpty {
                     Text("Nothing pressing today: no urgent, overdue or due-today tasks.").foregroundStyle(.secondary)
                 } else if store.freeToday.isEmpty {
                     Text("No free time left today.").foregroundStyle(.secondary)
@@ -781,6 +810,7 @@ struct PlanDayView: View {
                     }
                 }
             }
+            .loading(!store.loaded, "Loading your day\u{2026}")
             .navigationTitle("Plan My Day")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -973,7 +1003,10 @@ struct SearchResultsView: View {
         List {
             if query.trimmingCharacters(in: .whitespaces).isEmpty {
                 Text("Search event titles, places and notes, and task names.").foregroundStyle(.secondary)
-            } else if results.isEmpty && searched == query {
+            } else if searched != query {
+                Label { Text("Searching\u{2026}") } icon: { ProgressView().controlSize(.small) }
+                    .foregroundStyle(.secondary)
+            } else if results.isEmpty {
                 Text("Nothing matches \u{201C}\(query)\u{201D}.").foregroundStyle(.secondary)
             }
             if !results.upcoming.isEmpty {
@@ -1107,6 +1140,8 @@ struct MonthView: View {
     let store: CalendarStore
     @State private var month = Date.now
     @State private var selected = Calendar.current.startOfDay(for: .now)
+    /// The day a long press asked for a new event on.
+    @State private var newEventDay: Date?
 
     var body: some View {
         let grid = MonthGrid(containing: month)
@@ -1125,6 +1160,10 @@ struct MonthView: View {
                                     UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                                     #endif
                                 }
+                                // Long-press (right-click on the Mac) a day for a new event on it.
+                                .contextMenu {
+                                    Button("New Event", systemImage: "plus") { newEventDay = day }
+                                }
                         }
                     }
                 }
@@ -1140,6 +1179,9 @@ struct MonthView: View {
             if abs(drag.translation.width) > abs(drag.translation.height) { shift(drag.translation.width < 0 ? 1 : -1) }
         })
         #endif
+        .sheet(isPresented: Binding(get: { newEventDay != nil }, set: { if !$0 { newEventDay = nil } })) {
+            EventEditor(store: store, on: newEventDay)
+        }
         .onAppear { store.extraRange = grid.range }
         .onChange(of: month) { store.extraRange = MonthGrid(containing: month).range }
     }
@@ -1147,6 +1189,9 @@ struct MonthView: View {
     private func header(_ grid: MonthGrid) -> some View {
         HStack {
             Text(grid.month.formatted(.dateTime.month(.wide).year())).font(.title2.weight(.semibold))
+            if !store.hasEvents(from: grid.range.start, to: grid.range.end) {
+                ProgressView().controlSize(.small).accessibilityLabel("Loading the month")
+            }
             Spacer()
             Button { shift(-1) } label: { Image(systemName: "chevron.left") }
                 .keyboardShortcut(.leftArrow, modifiers: .command)
@@ -1317,6 +1362,7 @@ struct TasksView: View {
         }
         .listStyle(.inset)
         .scrollDismissesKeyboard(.immediately)
+        .loading(!store.loaded, "Loading your tasks\u{2026}")
     }
 
     @ViewBuilder private func section(_ title: String, _ tasks: [TaskItem]) -> some View {
@@ -1378,6 +1424,23 @@ struct TaskRow: View {
         .sheet(isPresented: $showingDetails) { TaskDetailView(store: store, task: task) }
         // Drag onto a free stretch to block out time for it.
         .draggable(task.id) { Label(task.title, systemImage: "checklist").padding(6) }
+        // Swipe right to check it off; swipe left to put it off a day or delete it
+        // (the undo banner brings a deleted task back).
+        .swipeActions(edge: .leading) {
+            Button { store.setDone(task, !task.isCompleted) } label: {
+                Label(task.isCompleted ? "Not Done" : "Done", systemImage: task.isCompleted ? "arrow.uturn.backward" : "checkmark")
+            }
+            .tint(task.isCompleted ? .gray : .green)
+        }
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive) { store.delete(task) } label: { Label("Delete", systemImage: "trash") }
+            if !task.isCompleted {
+                Button { store.setDue(task, tomorrow, hasTime: task.dueHasTime) } label: {
+                    Label("Tomorrow", systemImage: "arrow.turn.up.right")
+                }
+                .tint(.orange)
+            }
+        }
         .contextMenu {
             Button("Show Details") { showingDetails = true }
             Button(task.isCompleted ? "Mark Not Done" : "Mark Done") { store.setDone(task, !task.isCompleted) }
@@ -1386,6 +1449,15 @@ struct TaskRow: View {
                 PriorityMenu(current: task.priority) { store.setPriority(task, $0) }
             }
         }
+    }
+
+    /// Tomorrow, at the same time of day when the task has one.
+    private var tomorrow: Date {
+        let calendar = Calendar.current
+        let day = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: .now))!
+        guard task.dueHasTime, let due = task.due else { return day }
+        let time = calendar.dateComponents([.hour, .minute], from: due)
+        return calendar.date(bySettingHour: time.hour ?? 9, minute: time.minute ?? 0, second: 0, of: day) ?? day
     }
 }
 
@@ -1700,6 +1772,8 @@ struct QuickAddField: View {
     let store: CalendarStore
     /// Used when nothing is picked and the text names no date.
     var defaultDate: Date? = nil
+    /// Goes up to put the cursor here.
+    var focusRequest = 0
     @State private var text = ""
     @State private var picked: (due: Date, hasTime: Bool)?
     @State private var picking = false
@@ -1760,6 +1834,14 @@ struct QuickAddField: View {
         }
         .animation(.snappy(duration: 0.2), value: typing)
         .padding(.vertical, 4)
+        .onChange(of: focusRequest, initial: true) {
+            guard focusRequest > 0 else { return }
+            // Once the app is open and on this tab (any sooner and iOS ignores it).
+            Task {
+                try? await Task.sleep(for: .milliseconds(400))
+                typing = true
+            }
+        }
     }
 
     private var placeholder: String {
@@ -1797,6 +1879,9 @@ struct CalendarFilter: View {
 
     var body: some View {
         Menu {
+            if let focus = CalendarStore.focusCalendars {
+                Section("Focus filter on: \(focus.count) \(focus.count == 1 ? "calendar" : "calendars") showing") {}
+            }
             ForEach(Dictionary(grouping: store.calendars, by: \.account).sorted { $0.key < $1.key }, id: \.key) { account, calendars in
                 Section(account.isEmpty ? "Other" : account) {
                     ForEach(calendars) { info in
@@ -1912,6 +1997,8 @@ struct BriefPopup: View {
 /// Every brief Daybook has (the last two weeks), newest first, from the sun button.
 struct BriefHistoryView: View {
     let briefs: [CalendarStore.PostedBrief]
+    /// The Daybook list in Reminders hasn't been read yet.
+    var loading = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -1932,7 +2019,9 @@ struct BriefHistoryView: View {
                 }
             }
             .overlay {
-                if briefs.isEmpty {
+                if briefs.isEmpty && loading {
+                    ProgressView("Loading briefs\u{2026}")
+                } else if briefs.isEmpty {
                     ContentUnavailableView("No briefs yet", systemImage: "sun.horizon",
                                            description: Text("The morning brief shows up here after it runs on your Mac."))
                 }
@@ -1940,6 +2029,20 @@ struct BriefHistoryView: View {
             .navigationTitle("Briefs")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+        }
+    }
+}
+
+extension View {
+    /// A spinner in place of a view whose data hasn't arrived yet, so an empty
+    /// list doesn't read as "nothing there".
+    func loading(_ isLoading: Bool, _ label: String) -> some View {
+        overlay {
+            if isLoading {
+                ProgressView(label)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(.background)
             }
         }
     }

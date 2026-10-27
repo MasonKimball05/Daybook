@@ -8,6 +8,9 @@
 
 /* Begin PBXBuildFile section */
 		048A42C728F38A1AA68819F3 /* DaybookiOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E8A05E1DEF79482A06DCE1 /* DaybookiOSApp.swift */; };
+		0631E5EAE73988CCA101F0CA /* Spotlight.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9D8827BA791C3D0F87463CE /* Spotlight.swift */; };
+		19B0FDFA330F9A199B8FDC47 /* QuickAddControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6AF2AEEA5F7E45E16415CB0 /* QuickAddControl.swift */; };
+		1C1EDA913C9301BA92A5F41F /* Shared.swift in Sources */ = {isa = PBXBuildFile; fileRef = E19D254C398C6CA093C950C7 /* Shared.swift */; };
 		1EE58AFE58C76C84AE58113C /* EKConvert.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FE2C1366995EC5886CEC190 /* EKConvert.swift */; };
 		20F0206564113216E07D334D /* LeaveBy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6D1477FC970206BF267FD0F /* LeaveBy.swift */; };
 		231F5BF442886BEF4A92CA6E /* WeekGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CF36DDCC7921B3273D8CABE /* WeekGrid.swift */; };
@@ -18,16 +21,21 @@
 		726E9FF95C1CFE933CE9914C /* DaybookCore in Frameworks */ = {isa = PBXBuildFile; productRef = CD54E913B6DA5FAF988AE49A /* DaybookCore */; };
 		7315CA1E1F0DE3F78F8EEE07 /* SleepReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 712999AD29526EC9C152305C /* SleepReader.swift */; };
 		7878882AC0EB17A34296F358 /* TimeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BCB786EAA419418BCC1E9CF /* TimeView.swift */; };
+		79EA95712B7CC42EC71629E6 /* FocusFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACC8BA62516E3E533244FD35 /* FocusFilter.swift */; };
 		7B2169EB831224D5C91146EE /* CalendarStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EEE58F5E83F78568F2DC08F /* CalendarStore.swift */; };
 		93E33ECFD690EAF75EBA3F8E /* DaybookCore in Frameworks */ = {isa = PBXBuildFile; productRef = DE9EEE816989CAE0CFA54917 /* DaybookCore */; };
+		93F6FE3C7EE85E88B221B5C9 /* NextEventActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEFF696BD482BEB9595781FE /* NextEventActivity.swift */; };
 		A780F8F1566799C42C2FE547 /* AlertScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 787CC7E15F1A861262AEE79D /* AlertScheduler.swift */; };
 		C2C81CDBE0AE5646733AFA3F /* EKConvert.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FE2C1366995EC5886CEC190 /* EKConvert.swift */; };
 		D31E72B666648C0B9E78D5F4 /* Views.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05C056F861015193682754DD /* Views.swift */; };
 		D371458FE3C223E51ED6D905 /* BriefView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B89BC77C2159A3CC3E777DB1 /* BriefView.swift */; };
 		D660AB7A169958480665350D /* Intents.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA916A4736BBB2B32D8E714F /* Intents.swift */; };
 		D768C4035C44FC837F45771A /* WorkCollector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 489080A02DA9A03DBFBA8DCF /* WorkCollector.swift */; };
+		DC3498599407548E70C92E28 /* NextUp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 970D8CB662944987A3D30EB2 /* NextUp.swift */; };
 		E9AC68922F5DFDF402DD0948 /* MenuBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AFB3DDC1B842BA575794074 /* MenuBar.swift */; };
+		FBFB8A7CCC5C7B1A50B30797 /* TabSwipe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F302B3087BAD2CAF7E57F56 /* TabSwipe.swift */; };
 		FD762F35906FAB2679801A42 /* DemoSeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9477E627F3675E6FF4E75756 /* DemoSeed.swift */; };
+		FE5027B48244DBA34B8B2F45 /* Shared.swift in Sources */ = {isa = PBXBuildFile; fileRef = E19D254C398C6CA093C950C7 /* Shared.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -68,13 +76,20 @@
 		712999AD29526EC9C152305C /* SleepReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepReader.swift; sourceTree = "<group>"; };
 		787CC7E15F1A861262AEE79D /* AlertScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertScheduler.swift; sourceTree = "<group>"; };
 		8BCB786EAA419418BCC1E9CF /* TimeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeView.swift; sourceTree = "<group>"; };
+		8F302B3087BAD2CAF7E57F56 /* TabSwipe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabSwipe.swift; sourceTree = "<group>"; };
 		9477E627F3675E6FF4E75756 /* DemoSeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoSeed.swift; sourceTree = "<group>"; };
+		970D8CB662944987A3D30EB2 /* NextUp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextUp.swift; sourceTree = "<group>"; };
 		A9E8A05E1DEF79482A06DCE1 /* DaybookiOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaybookiOSApp.swift; sourceTree = "<group>"; };
+		ACC8BA62516E3E533244FD35 /* FocusFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusFilter.swift; sourceTree = "<group>"; };
 		B051D2C72C63BB97FDFD585C /* Daybook-iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Daybook-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		B6AF2AEEA5F7E45E16415CB0 /* QuickAddControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickAddControl.swift; sourceTree = "<group>"; };
 		B89BC77C2159A3CC3E777DB1 /* BriefView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BriefView.swift; sourceTree = "<group>"; };
+		BEFF696BD482BEB9595781FE /* NextEventActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextEventActivity.swift; sourceTree = "<group>"; };
 		CC971D973DAA09ADF9D56BC0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		D6D1477FC970206BF267FD0F /* LeaveBy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeaveBy.swift; sourceTree = "<group>"; };
+		E19D254C398C6CA093C950C7 /* Shared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shared.swift; sourceTree = "<group>"; };
 		EA916A4736BBB2B32D8E714F /* Intents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Intents.swift; sourceTree = "<group>"; };
+		F9D8827BA791C3D0F87463CE /* Spotlight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Spotlight.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -105,6 +120,7 @@
 				4014D8731F4B724F0D9A6A47 /* DaybookWidget */,
 				43B4801644D0F57147C1A464 /* Packages */,
 				4AEB9BB19DDD858016B7E6BB /* Resources */,
+				91BDC19FC3ABD68224A6AC44 /* Shared */,
 				9A73008861E061CEFC9E6795 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -113,6 +129,8 @@
 			isa = PBXGroup;
 			children = (
 				58920288B9BB95E88DCF2DBC /* DaybookWidget.swift */,
+				BEFF696BD482BEB9595781FE /* NextEventActivity.swift */,
+				B6AF2AEEA5F7E45E16415CB0 /* QuickAddControl.swift */,
 			);
 			name = DaybookWidget;
 			path = Sources/DaybookWidget;
@@ -134,6 +152,15 @@
 			path = Resources;
 			sourceTree = "<group>";
 		};
+		91BDC19FC3ABD68224A6AC44 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				E19D254C398C6CA093C950C7 /* Shared.swift */,
+			);
+			name = Shared;
+			path = Sources/Shared;
+			sourceTree = "<group>";
+		};
 		9A73008861E061CEFC9E6795 /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -149,9 +176,13 @@
 				1C3CD99AA2E48E09C3875154 /* BriefNotifier.swift */,
 				A9E8A05E1DEF79482A06DCE1 /* DaybookiOSApp.swift */,
 				9477E627F3675E6FF4E75756 /* DemoSeed.swift */,
+				ACC8BA62516E3E533244FD35 /* FocusFilter.swift */,
 				EA916A4736BBB2B32D8E714F /* Intents.swift */,
 				D6D1477FC970206BF267FD0F /* LeaveBy.swift */,
+				970D8CB662944987A3D30EB2 /* NextUp.swift */,
 				712999AD29526EC9C152305C /* SleepReader.swift */,
+				F9D8827BA791C3D0F87463CE /* Spotlight.swift */,
+				8F302B3087BAD2CAF7E57F56 /* TabSwipe.swift */,
 			);
 			name = DaybookiOS;
 			path = Sources/DaybookiOS;
@@ -283,10 +314,15 @@
 				048A42C728F38A1AA68819F3 /* DaybookiOSApp.swift in Sources */,
 				FD762F35906FAB2679801A42 /* DemoSeed.swift in Sources */,
 				C2C81CDBE0AE5646733AFA3F /* EKConvert.swift in Sources */,
+				79EA95712B7CC42EC71629E6 /* FocusFilter.swift in Sources */,
 				D660AB7A169958480665350D /* Intents.swift in Sources */,
 				20F0206564113216E07D334D /* LeaveBy.swift in Sources */,
 				E9AC68922F5DFDF402DD0948 /* MenuBar.swift in Sources */,
+				DC3498599407548E70C92E28 /* NextUp.swift in Sources */,
+				1C1EDA913C9301BA92A5F41F /* Shared.swift in Sources */,
 				7315CA1E1F0DE3F78F8EEE07 /* SleepReader.swift in Sources */,
+				0631E5EAE73988CCA101F0CA /* Spotlight.swift in Sources */,
+				FBFB8A7CCC5C7B1A50B30797 /* TabSwipe.swift in Sources */,
 				7878882AC0EB17A34296F358 /* TimeView.swift in Sources */,
 				D31E72B666648C0B9E78D5F4 /* Views.swift in Sources */,
 				231F5BF442886BEF4A92CA6E /* WeekGrid.swift in Sources */,
@@ -300,6 +336,9 @@
 			files = (
 				6B0099E65B51932808D3D599 /* DaybookWidget.swift in Sources */,
 				1EE58AFE58C76C84AE58113C /* EKConvert.swift in Sources */,
+				93F6FE3C7EE85E88B221B5C9 /* NextEventActivity.swift in Sources */,
+				19B0FDFA330F9A199B8FDC47 /* QuickAddControl.swift in Sources */,
+				FE5027B48244DBA34B8B2F45 /* Shared.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

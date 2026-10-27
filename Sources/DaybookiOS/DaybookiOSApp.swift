@@ -1,3 +1,4 @@
+import CoreSpotlight
 import DaybookCore
 import SwiftUI
 
@@ -16,15 +17,17 @@ struct DaybookiOSApp: App {
     @State private var planning = false
     @State private var searching = false
     @State private var searchFieldActive = false
+    @State private var screen = Screen.today
+    private let requests = AppRequests.shared
 
     var body: some Scene {
         WindowGroup {
             Group {
                 if store.eventAccess == .granted || store.reminderAccess == .granted {
-                    TabView {
-                        Tab("Today", systemImage: "sun.max") {
+                    TabView(selection: $screen) {
+                        Tab("Today", systemImage: "sun.max", value: .today) {
                             NavigationStack {
-                                DayListView(store: store, start: .now, days: 1)
+                                DayListView(store: store, start: .now, days: 1, quickAddFocus: requests.quickAdd)
                                     .navigationTitle("Today")
                                     .toolbar {
                                         // Search lives here: a sixth tab would push Time into "More".
@@ -36,14 +39,14 @@ struct DaybookiOSApp: App {
                                     }
                             }
                         }
-                        Tab("Week", systemImage: "calendar.day.timeline.left") {
+                        Tab("Week", systemImage: "calendar.day.timeline.left", value: .week) {
                             NavigationStack {
                                 DayListView(store: store, start: .now, days: 7)
                                     .navigationTitle("This Week")
                                     .toolbar { newEventButton }
                             }
                         }
-                        Tab("Month", systemImage: "calendar") {
+                        Tab("Month", systemImage: "calendar", value: .month) {
                             NavigationStack {
                                 // The month's own header says "October 2026"; no title above it.
                                 MonthView(store: store)
@@ -51,7 +54,7 @@ struct DaybookiOSApp: App {
                                     .toolbar { newEventButton }
                             }
                         }
-                        Tab("Tasks", systemImage: "checklist") {
+                        Tab("Tasks", systemImage: "checklist", value: .tasks) {
                             NavigationStack {
                                 TasksView(store: store)
                                     .navigationTitle("Tasks")
@@ -61,11 +64,27 @@ struct DaybookiOSApp: App {
                                     }
                             }
                         }
-                        Tab("Time", systemImage: "chart.bar") {
+                        Tab("Time", systemImage: "chart.bar", value: .time) {
                             NavigationStack { TimeView(store: store).toolbar(.hidden, for: .navigationBar) }
                         }
                     }
                     .refreshable { await store.reload() }
+                    // Swipe in from either edge for the tab beside this one.
+                    .tabSwipes($screen)
+                    .sensoryFeedback(.selection, trigger: screen)
+                    // The Add Task control: Today, ready to type.
+                    .onChange(of: requests.quickAdd) { screen = .today }
+                    // A Spotlight result: Daybook's search, on that event or task.
+                    .onContinueUserActivity(CSSearchableItemActionType) { activity in
+                        guard let id = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
+                              let title = Spotlight.title(for: id, in: store) else { return }
+                        query = title
+                        searching = true
+                    }
+                    // A Focus with a Daybook filter turned on or off.
+                    .onReceive(NotificationCenter.default.publisher(for: .focusFilterChanged)) { _ in
+                        Task { await store.reload() }
+                    }
                     // Above the tab bar.
                     .overlay(alignment: .bottom) {
                         UndoBanner(store: store).padding(.bottom, 52).animation(.snappy, value: store.undoAction?.id)
@@ -108,7 +127,7 @@ struct DaybookiOSApp: App {
                         }
                     }
                     .sheet(isPresented: $showingHistory) {
-                        BriefHistoryView(briefs: store.briefs).onAppear {
+                        BriefHistoryView(briefs: store.briefs, loading: !store.loaded).onAppear {
                             store.briefSeen()
                             if let brief = BriefNotifier.unseen(store) { Task { await BriefNotifier.markSeen(brief) } }
                         }
