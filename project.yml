@@ -46,7 +46,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.masonkimball.Daybook
         PRODUCT_NAME: Daybook
-        # My personal (free) team. Xcode signs automatically when I run it on my iPhone.
+        # My paid Apple Developer team. Xcode signs automatically when I run it on my
+        # iPhone, and the install lasts a year (the provisioning profile's lifetime).
         DEVELOPMENT_TEAM: F4P3T9JYP2
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "1"

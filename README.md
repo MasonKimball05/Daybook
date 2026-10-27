@@ -71,13 +71,15 @@ open Daybook.xcodeproj
 
 Plug in the iPhone, pick it as the run destination, and press Run. The first time:
 turn on **Developer Mode** (Settings ▸ Privacy & Security), and trust the developer
-(Settings ▸ General ▸ VPN & Device Management). With a free Apple ID the app stops
-opening after 7 days; press Run again to renew it. Nothing is lost, since the data
-lives in iCloud.
+(Settings ▸ General ▸ VPN & Device Management). The team is a paid Apple Developer
+account, so an install keeps opening for a year (until the provisioning profile
+expires); press Run again then to renew it. Nothing is lost, since the data lives
+in iCloud.
 
-### SideStore (no weekly replug)
+### SideStore (only for a free Apple ID)
 
-SideStore re-signs the app on the phone every week by itself, over Wi-Fi.
+With a free Apple ID an install stops opening after 7 days. SideStore re-signs the
+app on the phone every week by itself, over Wi-Fi. The paid account doesn't need it.
 
 ```bash
 make ipa              # writes build/Daybook.ipa
