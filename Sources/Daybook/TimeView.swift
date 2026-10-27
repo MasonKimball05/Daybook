@@ -3,7 +3,8 @@ import DaybookCore
 import SwiftUI
 
 /// The weekly recap, Sunday to Saturday: free time, hours by calendar, coding
-/// by repo, time logged by hand, and what shipped on GitHub, with a bar per day.
+/// by repo, time logged by hand, what shipped on GitHub, and (on the Mac) time
+/// in Eclipse by Space and site, with a bar per day.
 /// Log Activity adds time spent that isn't on the calendar ("Study, 10 to 11 PM").
 struct TimeView: View {
     let store: CalendarStore
@@ -41,6 +42,16 @@ struct TimeView: View {
                 if !report.byRepo.isEmpty {
                     Breakdown(title: "Coding by repo", rows: report.byRepo.map { ($0.name, $0.hours, codingColor) })
                 }
+                if let browsing = report.browsing {
+                    // Apart from the kinds above: browsing overlaps them (a call in a tab, docs open while coding).
+                    VStack(alignment: .leading, spacing: 4) {
+                        Breakdown(title: "Browsing in Eclipse \u{00B7} \(TimeReport.hours(browsing.hours))",
+                                  rows: browsing.bySpace.map { ($0.name, $0.hours, browsingColor) })
+                        Text("While Eclipse was in front and you were at the Mac. It overlaps the hours above.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Breakdown(title: "Top sites", rows: browsing.bySite.prefix(8).map { ($0.name, $0.hours, browsingColor.opacity(0.7)) })
+                }
                 #if os(iOS)
                 if let status = store.sleepStatus {
                     Label(status, systemImage: "bed.double").font(.caption).foregroundStyle(.secondary)
@@ -63,7 +74,12 @@ struct TimeView: View {
         }
         // Coding work comes from the Mac by way of Reminders, so it's missing until the first load.
         .loading(!store.loaded, "Loading your week\u{2026}")
-        .onAppear { store.extraRange = (week, Calendar.current.date(byAdding: .day, value: 7, to: week)!) }
+        .onAppear {
+            store.extraRange = (week, Calendar.current.date(byAdding: .day, value: 7, to: week)!)
+            #if os(macOS)
+            store.refreshBrowsing()
+            #endif
+        }
         .sheet(isPresented: $logging) { LogActivitySheet(store: store) }
     }
 
@@ -220,6 +236,7 @@ struct TimeView: View {
     }
 
     private let loggedColor = Color(red: 0.18, green: 0.62, blue: 0.56)
+    private let browsingColor = Color.purple
     /// Muted indigo: sleep is the biggest piece of most days, so it stays quiet.
     private let sleepColor = Color(red: 0.36, green: 0.38, blue: 0.62).opacity(0.55)
 
@@ -276,6 +293,15 @@ private struct DayCard: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+            if let browsed = day.browsed {  // (overlaps the rest, so it's not one of the bar's kinds)
+                HStack {
+                    Text("Browsing in Eclipse")
+                    Spacer(minLength: 12)
+                    Text(TimeReport.hours(browsed)).monospacedDigit()
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
         }
         .padding(8)
         .frame(width: width)

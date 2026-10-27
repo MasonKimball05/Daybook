@@ -254,7 +254,7 @@ public enum Work {
 
 /// Where a stretch of days went: hours in calendar events by calendar, hours
 /// logged by hand by what they were ("Study"), hours coding by repo, free
-/// time, and what shipped on GitHub.
+/// time, what shipped on GitHub, and time in Eclipse by Space and site.
 public struct TimeReport: Sendable {
     /// The calendar Daybook's "Log Activity" writes to. Its events count by
     /// their titles, not as one lump.
@@ -291,6 +291,9 @@ public struct TimeReport: Sendable {
         public let free: Double
         /// Hours slept in the night that ended this day, if known.
         public let slept: Double?
+        /// Hours using Eclipse that day, if it said. Not one of `hours`: it
+        /// overlaps the rest (a meeting in the browser, coding with docs open).
+        public let browsed: Double?
         public var id: Date { date }
         public var total: Double { hours.values.reduce(0, +) }
     }
@@ -302,11 +305,14 @@ public struct TimeReport: Sendable {
     public let free: Double
     public let commits: Int
     public let activities: [Work.Activity]                  // not pushes, newest first
+    /// Time in Eclipse over these days (nil when it counted none), kept apart
+    /// from the categories and free time, which it overlaps.
+    public let browsing: Browsing.Summary?
 
     /// `days` days from `start`. Calendar time counts timed events only (all-day
     /// items are deadlines, not time spent), and overlaps once per category.
     public init(start: Date, days count: Int = 7, events: [AgendaItem], snapshot: Work.Snapshot?,
-                nights: [Sleep.Night] = [], calendar: Calendar = .current) {
+                nights: [Sleep.Night] = [], browsing: Browsing? = nil, calendar: Calendar = .current) {
         let start = calendar.startOfDay(for: start)
         let end = calendar.date(byAdding: .day, value: count, to: start)!
         let sessions = snapshot?.sessions ?? []
@@ -348,7 +354,8 @@ public struct TimeReport: Sendable {
             let busy = timed.filter { $0.start < wakeEnd && $0.end > wakeStart }.map { ($0.start, $0.end) }
                 + sessions.filter { $0.start < wakeEnd && $0.end > wakeStart }.map { ($0.start, $0.end) }
             let free = wakeEnd > wakeStart ? Self.uncovered(from: wakeStart, to: wakeEnd, busy: busy) / 3600 : 0
-            days.append(Day(date: day, hours: hours.filter { $0.value > 0.01 }, free: free, slept: lastNight.map { $0.asleep / 3600 }))
+            days.append(Day(date: day, hours: hours.filter { $0.value > 0.01 }, free: free, slept: lastNight.map { $0.asleep / 3600 },
+                            browsed: browsing?.day(day, calendar: calendar).map { $0.seconds / 3600 }))
         }
         var totals: [String: Double] = [:]
         for day in days { for (name, hours) in day.hours { totals[name, default: 0] += hours } }
@@ -362,6 +369,7 @@ public struct TimeReport: Sendable {
         commits = (snapshot?.commits ?? []).filter { $0.date >= start && $0.date < end }.count
         activities = (snapshot?.activities ?? []).filter { $0.kind != .push && $0.date >= start && $0.date < end }
             .sorted { $0.date > $1.date }
+        self.browsing = browsing?.summary(from: start, days: count, calendar: calendar)
     }
 
     /// Seconds between `from` and `to` that no busy stretch covers.
@@ -403,12 +411,18 @@ public struct TimeReport: Sendable {
         if !byRepo.isEmpty {
             out += ["## Coding by repo (\(commits) commits)"] + byRepo.map { "- \($0.name): \(Self.hours($0.hours))" } + [""]
         }
+        if let browsing {
+            out += ["## Browsing in Eclipse: \(Self.hours(browsing.hours)) (overlaps the hours above)"]
+            out += ["By Space:"] + browsing.bySpace.map { "- \($0.name): \(Self.hours($0.hours))" }
+            out += ["Top sites:"] + browsing.bySite.prefix(10).map { "- \($0.name): \(Self.hours($0.hours))" } + [""]
+        }
         if !activities.isEmpty {
             out += ["## Shipped on GitHub"] + activities.map { "- \(day.string(from: $0.date)): \($0.label) in \($0.repo): \($0.title)" } + [""]
         }
         out += ["## By day"] + days.map { d in
             let parts = d.hours.sorted { $0.value > $1.value }.map { "\($0.key) \(Self.hours($0.value))" }
-            return "- \(day.string(from: d.date)): " + (parts.isEmpty ? "nothing recorded" : parts.joined(separator: ", "))
+            let browsed = d.browsed.map { "; browsing \(Self.hours($0))" } ?? ""
+            return "- \(day.string(from: d.date)): " + (parts.isEmpty ? "nothing recorded" : parts.joined(separator: ", ")) + browsed
         }
         return out.joined(separator: "\n") + "\n"
     }

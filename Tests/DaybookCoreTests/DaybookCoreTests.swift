@@ -661,6 +661,60 @@ func event(_ title: String, _ start: Date, _ end: Date, allDay: Bool = false, ca
     }
 }
 
+@Suite struct BrowsingTests {
+    /// What Eclipse writes (browser/browsing_time.py), newest day first.
+    let json = """
+    {"app": "Eclipse", "version": 1, "updated": "2026-10-07T15:45:19-05:00",
+     "days": [
+      {"date": "2026-10-07", "seconds": 5400,
+       "spaces": [{"name": "Work", "seconds": 3600}, {"name": "", "seconds": 1800}],
+       "sites": [{"host": "github.com", "seconds": 2700}, {"host": "docs.python.org", "seconds": 900}]},
+      {"date": "2026-10-06", "seconds": 1800,
+       "spaces": [{"name": "Work", "seconds": 1800}],
+       "sites": [{"host": "docs.python.org", "seconds": 1800}]},
+      {"date": "2026-10-01", "seconds": 600}
+     ]}
+    """
+
+    @Test func readsWhatEclipseWrites() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        #expect(Browsing.read(from: folder) == nil)
+        try Data(json.utf8).write(to: folder.appending(path: "browsing.json"))
+        let browsing = try #require(Browsing.read(from: folder))
+        #expect(browsing.days.count == 3)
+        #expect(browsing.day(at(10, 7, 23, 30), calendar: cal)?.seconds == 5400)
+        #expect(browsing.day(at(10, 1), calendar: cal)?.sites == []) // (left out: none)
+        #expect(browsing.day(at(10, 8), calendar: cal) == nil)
+        try Data("{\"days\": 3}".utf8).write(to: folder.appending(path: "browsing.json"))
+        #expect(Browsing.read(from: folder) == nil)
+    }
+
+    @Test func sumsAWeekApartFromTheOtherHours() throws {
+        let browsing = try JSONDecoder().decode(Browsing.self, from: Data(json.utf8))
+        let summary = try #require(browsing.summary(from: at(10, 6), days: 2, calendar: cal))
+        #expect(summary.hours == 2)
+        #expect(summary.bySpace.map(\.name) == ["Work", "Unnamed Space"])
+        #expect(summary.bySpace.map(\.hours) == [1.5, 0.5])
+        #expect(summary.bySite.map(\.name) == ["docs.python.org", "github.com"]) // 45m beats 45m by name
+        #expect(browsing.summary(from: at(10, 10), days: 7, calendar: cal) == nil)
+
+        let events = [event("Class", at(10, 6, 10), at(10, 6, 12))]
+        let report = TimeReport(start: at(10, 6), days: 2, events: events, snapshot: nil, browsing: browsing, calendar: cal)
+        #expect(report.categories.map(\.name) == ["Samford"]) // not a kind of its own
+        #expect(report.days.map(\.free) == [12, 14])           // nor taken from free time
+        #expect(report.days.map(\.browsed) == [0.5, 1.5])
+        #expect(report.browsing?.hours == 2)
+        let md = report.markdown(title: "Where your time went", timeZone: chicago)
+        #expect(md.contains("## Browsing in Eclipse: 2.0h (overlaps the hours above)\nBy Space:\n- Work: 1.5h\n- Unnamed Space: 30m\n"
+                            + "Top sites:\n- docs.python.org: 45m\n- github.com: 45m\n"))
+        #expect(md.contains("- Tue Oct 6: Samford 2.0h; browsing 30m"))
+        #expect(!TimeReport(start: at(10, 6), days: 2, events: events, snapshot: nil, calendar: cal)
+            .markdown(title: "x", timeZone: chicago).contains("Browsing"))
+    }
+}
+
 @Suite struct BillsTests {
     @Test func spotsBillingSubjects() {
         #expect(Bills.isBilling(subject: "Your Spotify Premium receipt"))

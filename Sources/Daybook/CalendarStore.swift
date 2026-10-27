@@ -69,6 +69,9 @@ final class CalendarStore {
     private(set) var work: Work.Snapshot? {
         didSet { workSessions = work?.sessions ?? [] }
     }
+    /// Time in Eclipse (the browser) by Space and site, from the browsing.json it
+    /// writes in Daybook's folder (Mac only).
+    private(set) var browsing: Browsing?
     /// Nights of sleep, from Apple Health: read on the iPhone (SleepReader) and
     /// shared through the Daybook list, so the Mac has them too.
     private(set) var sleepNights: [Sleep.Night] = []
@@ -378,6 +381,7 @@ final class CalendarStore {
         #if os(macOS)
         if reminderAccess == .granted && eventAccess == .granted { await syncCanvas() }
         if work == nil { work = Work.Snapshot.read() }
+        refreshBrowsing()
         bills = Bills.Snapshot.read()?.applying(Self.billOverrides)
         let dismissed = FollowUpReader.dismissed
         waiting = FollowUps.read().filter { !dismissed.contains($0.id) }
@@ -582,7 +586,8 @@ final class CalendarStore {
         // Time tab's layout in the Simulator, which has no calendars or Health.
         if ProcessInfo.processInfo.arguments.contains("-demoTime") { return Self.demoReport(start) }
         #endif
-        return TimeReport(start: start, days: 7, events: events(from: start, to: end), snapshot: work, nights: sleepNights)
+        return TimeReport(start: start, days: 7, events: events(from: start, to: end), snapshot: work, nights: sleepNights,
+                          browsing: browsing)
     }
 
     #if DEBUG
@@ -690,6 +695,7 @@ final class CalendarStore {
     /// Gathers commits and GitHub activity again, saves them, and writes the
     /// summaries the briefs read.
     func refreshWork() async {
+        refreshBrowsing()
         let snapshot = await WorkCollector.gather()
         try? snapshot.write()
         work = snapshot
@@ -713,6 +719,12 @@ final class CalendarStore {
         }
     }
 
+    /// Reads browsing.json again (Eclipse rewrites it every minute it's in use).
+    func refreshBrowsing() {
+        let read = Browsing.read()
+        if read != browsing { browsing = read }
+    }
+
     func refreshWorkIfStale() async {
         guard (work?.gathered ?? .distantPast).timeIntervalSinceNow < -600 else { return }
         await refreshWork()
@@ -728,7 +740,8 @@ final class CalendarStore {
         // The last full Sunday-to-Saturday week (on a Sunday, the one that just ended).
         let lastWeekStart = calendar.date(byAdding: .day, value: -7, to: TimeReport.weekStart(of: today))!
         let week = timeReport(weekOf: lastWeekStart)
-        let lastDay = TimeReport(start: yesterday, days: 1, events: events(from: yesterday, to: today), snapshot: work)
+        let lastDay = TimeReport(start: yesterday, days: 1, events: events(from: yesterday, to: today), snapshot: work,
+                                 browsing: browsing)
         let range = lastWeekStart.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()) + " \u{2013} "
             + calendar.date(byAdding: .day, value: 6, to: lastWeekStart)!.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
         var problems = work.problems.map { "- \($0)" }.joined(separator: "\n")
