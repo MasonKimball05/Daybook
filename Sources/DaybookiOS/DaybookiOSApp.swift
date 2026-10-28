@@ -18,16 +18,19 @@ struct DaybookiOSApp: App {
     @State private var searching = false
     @State private var searchFieldActive = false
     @State private var screen = Screen.today
+    /// Goes up for a tab each time it's tapped while already open: back to now, or this month.
+    @State private var reselected: [Screen: Int] = [:]
     private let requests = AppRequests.shared
 
     var body: some Scene {
         WindowGroup {
             Group {
                 if store.eventAccess == .granted || store.reminderAccess == .granted {
-                    TabView(selection: $screen) {
+                    TabView(selection: tabSelection) {
                         Tab("Today", systemImage: "sun.max", value: .today) {
                             NavigationStack {
-                                DayListView(store: store, start: .now, days: 1, quickAddFocus: requests.quickAdd)
+                                DayListView(store: store, start: .now, days: 1, quickAddFocus: requests.quickAdd,
+                                            jumpToNow: reselected[.today, default: 0], startsAtNow: true)
                                     .navigationTitle("Today")
                                     .toolbar {
                                         // Search lives here: a sixth tab would push Time into "More".
@@ -41,7 +44,7 @@ struct DaybookiOSApp: App {
                         }
                         Tab("Week", systemImage: "calendar.day.timeline.left", value: .week) {
                             NavigationStack {
-                                DayListView(store: store, start: .now, days: 7)
+                                DayListView(store: store, start: .now, days: 7, jumpToNow: reselected[.week, default: 0])
                                     .navigationTitle("This Week")
                                     .toolbar { newEventButton }
                             }
@@ -49,7 +52,7 @@ struct DaybookiOSApp: App {
                         Tab("Month", systemImage: "calendar", value: .month) {
                             NavigationStack {
                                 // The month's own header says "October 2026"; no title above it.
-                                MonthView(store: store)
+                                MonthView(store: store, jumpToToday: reselected[.month, default: 0])
                                     .toolbarTitleDisplayMode(.inline)
                                     .toolbar { newEventButton }
                             }
@@ -165,6 +168,15 @@ struct DaybookiOSApp: App {
         .backgroundTask(.appRefresh(BriefNotifier.refreshTask)) { [store] in
             await store.checkAccess()
             await BriefNotifier.check(store)
+        }
+    }
+
+    /// The tab bar's selection, which also notices a tap on the tab that's already open.
+    private var tabSelection: Binding<Screen> {
+        Binding {
+            screen
+        } set: { tapped in
+            if tapped == screen { reselected[tapped, default: 0] += 1 } else { screen = tapped }
         }
     }
 

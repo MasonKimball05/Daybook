@@ -121,80 +121,151 @@ struct DayListView: View {
     var quickAddDate: Date? = nil
     /// Goes up to put the cursor in the quick-add field (the iPhone's Add Task control).
     var quickAddFocus = 0
+    /// Goes up to scroll to the Now line (tapping the tab you're already on).
+    var jumpToNow = 0
+    /// Opens scrolled to the Now line, once part of the day is over (Today on the iPhone).
+    var startsAtNow = false
+    /// Overdue tasks past the first few, shown.
+    @State private var showingAllOverdue = false
+    @State private var scrolledToNow = false
+
+    /// How many overdue tasks show before "Show more": the full list on Today, none
+    /// (just the header) where Today already shows them.
+    private var overdueShown: Int { days == 1 ? 3 : 0 }
 
     var body: some View {
+        // Redrawn each minute, so the Now line keeps up.
+        TimelineView(.everyMinute) { timeline in
+            list(now: timeline.date)
+        }
+    }
+
+    private func list(now: Date) -> some View {
         // Canvas assignments show as their tasks, not again as calendar items.
         let agenda = Agenda.days(from: start, count: days, events: store.events.filter { Canvas.assignmentID($0.id) == nil },
                                  tasks: store.tasks)
         let isToday = days == 1 && Calendar.current.isDateInToday(start)
-        let overdue = isToday || days > 1 ? store.tasks.filter { $0.isOverdue(now: .now, calendar: .current) } : []
-        List {
-            if days == 1 && showsQuickAdd {
-                QuickAddField(store: store, defaultDate: quickAddDate, focusRequest: quickAddFocus)
-            }
-            if isToday && !store.countdowns.isEmpty {
-                Section("Counting down") {
-                    ForEach(store.countdowns.prefix(3)) { CountdownRow(store: store, item: $0) }
+        let overdue = isToday || days > 1 ? store.tasks.filter { $0.isOverdue(now: now, calendar: .current) } : []
+        let dayStart = Calendar.current.startOfDay(for: start)
+        let loaded = store.hasEvents(from: dayStart, to: Calendar.current.date(byAdding: .day, value: days, to: dayStart)!)
+        // Something today is already over, so there's something to scroll past.
+        let dayUnderWay = agenda.first { Calendar.current.isDateInToday($0.date) }?.timed.contains { $0.end <= now } == true
+        return ScrollViewReader { proxy in
+            List {
+                if days == 1 && showsQuickAdd {
+                    QuickAddField(store: store, defaultDate: quickAddDate, focusRequest: quickAddFocus)
                 }
-            }
-            if !overdue.isEmpty {
-                Section("Overdue") {
-                    ForEach(overdue) { TaskRow(store: store, task: $0, showDate: true) }
-                }
-            }
-            ForEach(agenda) { day in
-                let work = store.coding(on: day.date)
-                Section {
-                    if day.isEmpty && work.sessions.isEmpty && work.activities.isEmpty {
-                        Text("Nothing scheduled").foregroundStyle(.secondary)
+                if isToday && !store.countdowns.isEmpty {
+                    Section("Counting down") {
+                        ForEach(store.countdowns.prefix(3)) { CountdownRow(store: store, item: $0) }
                     }
-                    ForEach(day.allDay) { EventRow(store: store, item: $0) }
-                    // Overdue tasks are already listed above. Ones due at a time go
-                    // in among the events; the rest follow them.
-                    let tasks = day.tasks.filter { task in !overdue.contains { $0.id == task.id } }
-                    ForEach(Self.slots(day, tasks: tasks.filter(\.dueHasTime), shortestFree: days > 1 ? 3600 : 0)) { slot in
-                        switch slot {
-                        case .event(let item): EventRow(store: store, item: item)
-                        case .free(let block): FreeRow(store: store, block: block)
-                        case .task(let task): TaskRow(store: store, task: task, showDate: false)
+                }
+                if !overdue.isEmpty {
+                    overdueSection(overdue)
+                }
+                ForEach(agenda) { day in
+                    let work = store.coding(on: day.date)
+                    Section {
+                        if day.isEmpty && work.sessions.isEmpty && work.activities.isEmpty {
+                            Text("Nothing scheduled").foregroundStyle(.secondary)
                         }
+                        ForEach(day.allDay) { EventRow(store: store, item: $0) }
+                        // Overdue tasks are already listed above. Ones due at a time go
+                        // in among the events; the rest follow them.
+                        let tasks = day.tasks.filter { task in !overdue.contains { $0.id == task.id } }
+                        let today = Calendar.current.isDate(day.date, inSameDayAs: now)
+                        ForEach(Self.slots(day, tasks: tasks.filter(\.dueHasTime), shortestFree: days > 1 ? 3600 : 0,
+                                           now: today ? now : nil)) { slot in
+                            switch slot {
+                            case .event(let item): EventRow(store: store, item: item)
+                            case .free(let block): FreeRow(store: store, block: block)
+                            case .task(let task): TaskRow(store: store, task: task, showDate: false)
+                            case .now(let time): NowRow(time: time).id(Self.nowID)
+                            }
+                        }
+                        ForEach(tasks.filter { !$0.dueHasTime }) { TaskRow(store: store, task: $0, showDate: false) }
+                        // Coding, in orange so it stands apart from the calendar.
+                        ForEach(work.sessions) { SessionRow(session: $0) }
+                        ForEach(work.activities) { ActivityRow(activity: $0) }
+                    } header: {
+                        Text(Self.heading(day.date)).font(.headline)
                     }
-                    ForEach(tasks.filter { !$0.dueHasTime }) { TaskRow(store: store, task: $0, showDate: false) }
-                    // Coding, in orange so it stands apart from the calendar.
-                    ForEach(work.sessions) { SessionRow(session: $0) }
-                    ForEach(work.activities) { ActivityRow(activity: $0) }
-                } header: {
-                    Text(Self.heading(day.date)).font(.headline)
+                }
+                if isToday && !store.completedToday.isEmpty {
+                    Section("Done today") {
+                        ForEach(store.completedToday) { TaskRow(store: store, task: $0, showDate: false) }
+                    }
                 }
             }
-            if isToday && !store.completedToday.isEmpty {
-                Section("Done today") {
-                    ForEach(store.completedToday) { TaskRow(store: store, task: $0, showDate: false) }
-                }
+            .listStyle(.inset)
+            .scrollDismissesKeyboard(.immediately)
+            .onChange(of: jumpToNow) {
+                withAnimation(.snappy) { proxy.scrollTo(Self.nowID, anchor: .center) }
+            }
+            // Once the day has loaded: straight to what's next, past what's over.
+            .onChange(of: loaded, initial: true) {
+                guard startsAtNow, loaded, dayUnderWay, !scrolledToNow else { return }
+                scrolledToNow = true
+                Task { proxy.scrollTo(Self.nowID, anchor: .center) }
             }
         }
-        .listStyle(.inset)
-        .scrollDismissesKeyboard(.immediately)
         // Until EventKit answers, the empty list would say "Nothing scheduled".
-        .loading(!store.hasEvents(from: Calendar.current.startOfDay(for: start),
-                                  to: Calendar.current.date(byAdding: .day, value: days, to: Calendar.current.startOfDay(for: start))!),
-                 "Loading your calendar\u{2026}")
+        .loading(!loaded, "Loading your calendar\u{2026}")
         #if os(macOS)
         // Today's commits: gather again if the last look is over 10 minutes old.
         .task { if isToday { await store.refreshWorkIfStale() } }
         #endif
     }
 
-    /// Timed events with the free stretches between them, in order. Past days get no free rows.
+    private static let nowID = "now"
+
+    /// The first few overdue tasks (all of them once asked), with a way to move
+    /// them all to today.
+    @ViewBuilder private func overdueSection(_ overdue: [TaskItem]) -> some View {
+        let shown = showingAllOverdue ? overdue : Array(overdue.prefix(overdueShown))
+        Section {
+            ForEach(shown) { TaskRow(store: store, task: $0, showDate: true) }
+            if shown.count < overdue.count {
+                Button {
+                    withAnimation(.snappy) { showingAllOverdue = true }
+                } label: {
+                    Text(shown.isEmpty ? "Show \(overdue.count) overdue" : "Show \(overdue.count - shown.count) more")
+                        .font(.callout)
+                }
+                .buttonStyle(.borderless)
+            } else if overdue.count > overdueShown {
+                Button {
+                    withAnimation(.snappy) { showingAllOverdue = false }
+                } label: {
+                    Text("Show fewer").font(.callout)
+                }
+                .buttonStyle(.borderless)
+            }
+        } header: {
+            HStack {
+                Text("Overdue")
+                Spacer()
+                Button("Move All to Today") { store.moveToToday(overdue) }
+                    .font(.caption.weight(.semibold))
+                    .buttonStyle(.borderless)
+                    .textCase(nil)
+            }
+        }
+    }
+
+    /// Timed events with the free stretches between them, in order, and the Now
+    /// line on today. Past days get no free rows.
     enum Slot: Identifiable {
         case event(AgendaItem)
         case free(DateInterval)
         case task(TaskItem)
+        case now(Date)
         var id: String {
             switch self {
             case .event(let item): item.id
             case .free(let block): "free-\(block.start.timeIntervalSince1970)"
             case .task(let task): "task-" + task.id
+            case .now: "now"
             }
         }
         var start: Date {
@@ -202,16 +273,20 @@ struct DayListView: View {
             case .event(let item): item.start
             case .free(let block): block.start
             case .task(let task): task.due ?? .distantFuture
+            case .now(let time): time
             }
         }
     }
 
     /// The week leaves out free stretches under `shortestFree`, so seven days of
-    /// them don't crowd out the events.
-    static func slots(_ day: Agenda.Day, tasks: [TaskItem] = [], shortestFree: TimeInterval = 0) -> [Slot] {
+    /// them don't crowd out the events. `now` (for today) puts the Now line in:
+    /// after what's started, before what hasn't.
+    static func slots(_ day: Agenda.Day, tasks: [TaskItem] = [], shortestFree: TimeInterval = 0, now: Date? = nil) -> [Slot] {
         let isPast = Calendar.current.startOfDay(for: day.date) < Calendar.current.startOfDay(for: .now)
         let free = isPast ? [] : FreeTime.blocks(on: day.date, events: day.timed).filter { $0.duration >= shortestFree }
-        return (day.timed.map(Slot.event) + free.map(Slot.free) + tasks.map(Slot.task)).sorted { $0.start < $1.start }
+        let line = now.map { [Slot.now($0)] } ?? []
+        return (day.timed.map(Slot.event) + free.map(Slot.free) + tasks.map(Slot.task) + line)
+            .sorted { ($0.start, $0.isNow ? 1 : 0) < ($1.start, $1.isNow ? 1 : 0) }
     }
 
     static func heading(_ date: Date) -> String {
@@ -219,6 +294,30 @@ struct DayListView: View {
         if Calendar.current.isDateInToday(date) { return "Today \u{00B7} " + text }
         if Calendar.current.isDateInTomorrow(date) { return "Tomorrow \u{00B7} " + text }
         return text
+    }
+}
+
+extension DayListView.Slot {
+    var isNow: Bool { if case .now = self { true } else { false } }
+}
+
+/// A red line at the current time, like Calendar's.
+struct NowRow: View {
+    let time: Date
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle().fill(.red).frame(width: 8, height: 8)
+            Rectangle().fill(.red).frame(height: 1.5)
+            Text("Now \u{00B7} \(time.formatted(date: .omitted, time: .shortened))")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.red)
+                .fixedSize()
+        }
+        .listRowSeparator(.hidden)
+        .listRowInsets(EdgeInsets(top: 2, leading: 12, bottom: 2, trailing: 16))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Now, \(time.formatted(date: .omitted, time: .shortened))")
     }
 }
 
@@ -246,6 +345,8 @@ struct EventRow: View {
     let store: CalendarStore
     let item: AgendaItem
     @State private var showingDetails = false
+    /// Counts swipes to Done, for a tap you can feel.
+    @State private var swipedDone = 0
 
     var body: some View {
         let done = store.isDone(item)
@@ -277,7 +378,13 @@ struct EventRow: View {
                 }
             }
             Spacer()
-            if let url = item.url {
+            if let meeting = joinable {
+                // From 10 minutes before a call until it ends.
+                Link(destination: meeting) { Label("Join", systemImage: "video.fill").font(.caption.weight(.semibold)) }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.small)
+            } else if let url = item.url {
                 Link(destination: url) { Image(systemName: "arrow.up.right.square") }
                     .help(url.absoluteString)
             }
@@ -305,11 +412,12 @@ struct EventRow: View {
         #endif
         // Swipe right to check it off, like Mail's swipe to mark read.
         .swipeActions(edge: .leading) {
-            Button { store.setDone(item, !done) } label: {
+            Button { swipedDone += 1; store.setDone(item, !done) } label: {
                 Label(done ? "Not Done" : "Done", systemImage: done ? "arrow.uturn.backward" : "checkmark")
             }
             .tint(done ? .gray : .green)
         }
+        .sensoryFeedback(.success, trigger: swipedDone)
         .contextMenu {
             Button("Show Details") { showingDetails = true }
             Button(done ? "Mark Not Done" : "Mark Done") { store.setDone(item, !done) }
@@ -318,6 +426,12 @@ struct EventRow: View {
     }
 
     private var isPast: Bool { !item.isAllDay && item.end < .now }
+
+    /// The video call to join, if it starts within 10 minutes or is on now.
+    private var joinable: URL? {
+        guard !item.isAllDay, item.end > .now, item.start.timeIntervalSinceNow < 600 else { return nil }
+        return MeetingLink.find(in: [item.location, item.url?.absoluteString])
+    }
 }
 
 /// Everything about one event, from tapping it in a list.
@@ -356,6 +470,9 @@ struct EventDetailView: View {
                 HStack(spacing: 8) {
                     if let meeting = details?.meeting {
                         Button { openURL(meeting) } label: { Label("Join", systemImage: "video.fill") }
+                            .buttonStyle(.borderedProminent)
+                    } else if let directions = directionsURL {
+                        Button { openURL(directions) } label: { Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill") }
                             .buttonStyle(.borderedProminent)
                     }
                     Button { store.setDone(item, !done) } label: {
@@ -472,6 +589,16 @@ struct EventDetailView: View {
                 + " \u{2013} " + item.end.formatted(date: .omitted, time: .shortened)
         }
         return item.start.formatted(day.hour().minute()) + " \u{2013} " + item.end.formatted(day.hour().minute())
+    }
+
+    /// Apple Maps directions to the event's place (driving, or walking if that's
+    /// the travel setting), when it has a place and isn't over.
+    private var directionsURL: URL? {
+        guard let place = item.place, !place.contains("http"), item.end > .now else { return nil }
+        var components = URLComponents(string: "https://maps.apple.com/")
+        components?.queryItems = [URLQueryItem(name: "daddr", value: place),
+                                  URLQueryItem(name: "dirflg", value: AlertScheduler.settings.walking ? "w" : "d")]
+        return components?.url
     }
 
     private func mapsURL(_ location: String) -> URL? {
@@ -1138,6 +1265,8 @@ enum Clipboard {
 
 struct MonthView: View {
     let store: CalendarStore
+    /// Goes up to come back to this month with today picked (tapping the open tab).
+    var jumpToToday = 0
     @State private var month = Date.now
     @State private var selected = Calendar.current.startOfDay(for: .now)
     /// The day a long press asked for a new event on.
@@ -1182,6 +1311,7 @@ struct MonthView: View {
         .sheet(isPresented: Binding(get: { newEventDay != nil }, set: { if !$0 { newEventDay = nil } })) {
             EventEditor(store: store, on: newEventDay)
         }
+        .onChange(of: jumpToToday) { withAnimation(.snappy) { showToday() } }
         .onAppear { store.extraRange = grid.range }
         .onChange(of: month) { store.extraRange = MonthGrid(containing: month).range }
     }
@@ -1195,10 +1325,7 @@ struct MonthView: View {
             Spacer()
             Button { shift(-1) } label: { Image(systemName: "chevron.left") }
                 .keyboardShortcut(.leftArrow, modifiers: .command)
-            Button("Today") {
-                month = .now
-                selected = Calendar.current.startOfDay(for: .now)
-            }
+            Button("Today", action: showToday)
             Button { shift(1) } label: { Image(systemName: "chevron.right") }
                 .keyboardShortcut(.rightArrow, modifiers: .command)
         }
@@ -1217,6 +1344,11 @@ struct MonthView: View {
             }
         }
         .padding(.bottom, 4)
+    }
+
+    private func showToday() {
+        month = .now
+        selected = Calendar.current.startOfDay(for: .now)
     }
 
     private func shift(_ months: Int) {
@@ -1380,6 +1512,10 @@ struct TaskRow: View {
     let showDate: Bool
     @State private var editingDate = false
     @State private var showingDetails = false
+    /// Count the swipe actions, for a tap you can feel with each.
+    @State private var swipedDone = 0
+    @State private var swipedLater = 0
+    @State private var swipedDelete = 0
 
     var body: some View {
         HStack(spacing: 10) {
@@ -1427,20 +1563,23 @@ struct TaskRow: View {
         // Swipe right to check it off; swipe left to put it off a day or delete it
         // (the undo banner brings a deleted task back).
         .swipeActions(edge: .leading) {
-            Button { store.setDone(task, !task.isCompleted) } label: {
+            Button { swipedDone += 1; store.setDone(task, !task.isCompleted) } label: {
                 Label(task.isCompleted ? "Not Done" : "Done", systemImage: task.isCompleted ? "arrow.uturn.backward" : "checkmark")
             }
             .tint(task.isCompleted ? .gray : .green)
         }
         .swipeActions(edge: .trailing) {
-            Button(role: .destructive) { store.delete(task) } label: { Label("Delete", systemImage: "trash") }
+            Button(role: .destructive) { swipedDelete += 1; store.delete(task) } label: { Label("Delete", systemImage: "trash") }
             if !task.isCompleted {
-                Button { store.setDue(task, tomorrow, hasTime: task.dueHasTime) } label: {
+                Button { swipedLater += 1; store.setDue(task, tomorrow, hasTime: task.dueHasTime) } label: {
                     Label("Tomorrow", systemImage: "arrow.turn.up.right")
                 }
                 .tint(.orange)
             }
         }
+        .sensoryFeedback(.success, trigger: swipedDone)
+        .sensoryFeedback(.impact(weight: .light), trigger: swipedLater)
+        .sensoryFeedback(.impact(weight: .heavy), trigger: swipedDelete)
         .contextMenu {
             Button("Show Details") { showingDetails = true }
             Button(task.isCompleted ? "Mark Not Done" : "Mark Done") { store.setDone(task, !task.isCompleted) }
@@ -1834,6 +1973,14 @@ struct QuickAddField: View {
         }
         .animation(.snappy(duration: 0.2), value: typing)
         .padding(.vertical, 4)
+        #if os(iOS)
+        // Common dates, above the keyboard, so there's no need to type "friday".
+        .toolbar {
+            ToolbarItem(placement: .keyboard) {
+                if typing { dateChips }
+            }
+        }
+        #endif
         .onChange(of: focusRequest, initial: true) {
             guard focusRequest > 0 else { return }
             // Once the app is open and on this tab (any sooner and iOS ignores it).
@@ -1843,6 +1990,36 @@ struct QuickAddField: View {
             }
         }
     }
+
+    #if os(iOS)
+    private var dateChips: some View {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        let day = { (n: Int) in calendar.date(byAdding: .day, value: n, to: today)! }
+        // Saturday (today, on a Saturday), and the Monday after this week.
+        let saturday = calendar.nextDate(after: day(-1), matching: DateComponents(weekday: 7), matchingPolicy: .nextTime) ?? day(1)
+        let monday = calendar.nextDate(after: today, matching: DateComponents(weekday: 2), matchingPolicy: .nextTime) ?? day(7)
+        let choices = [("Today", today), ("Tomorrow", day(1)), ("This Weekend", saturday), ("Next Week", monday)]
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(choices, id: \.0) { name, date in
+                    let chosen = picked.map { calendar.isDate($0.due, inSameDayAs: date) && !$0.hasTime } == true
+                    Button(name) { picked = chosen ? nil : (date, false) }
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
+                        .tint(chosen ? .accentColor : .secondary)
+                        .fontWeight(chosen ? .semibold : .regular)
+                        .accessibilityAddTraits(chosen ? .isSelected : [])
+                }
+                Button { picking = true } label: { Label("Pick a Date", systemImage: "calendar") }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .tint(.secondary)
+            }
+            .controlSize(.small)
+        }
+    }
+    #endif
 
     private var placeholder: String {
         let kind = makingEvent ? "an event" : "a task"

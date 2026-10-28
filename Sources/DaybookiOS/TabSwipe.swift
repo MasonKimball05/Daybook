@@ -16,8 +16,8 @@ enum Screen: Int, CaseIterable {
 }
 
 extension View {
-    /// Edge swipes move between the tabs beside `screen`: in from the right edge for
-    /// the next tab, from the left edge for the one before.
+    /// Sideways swipes from either side move between the tabs beside `screen`: in
+    /// from the right side for the next tab, from the left side for the one before.
     func tabSwipes(_ screen: Binding<Screen>) -> some View {
         modifier(TabSwipes(screen: screen))
     }
@@ -42,7 +42,7 @@ private struct TabSwipes: ViewModifier {
 
     struct Drag: Equatable {
         var edge: UIRectEdge
-        /// How far in from the edge, in points.
+        /// How far in from where it started, in points.
         var distance: CGFloat
         var armed: Bool { distance > reach }
     }
@@ -119,11 +119,16 @@ private struct Bubble: View {
     }
 }
 
-/// Swipes in from the left and right edges of the screen. They sit on the window,
-/// like the back swipe in Settings, so they win over the swipes inside the screens
-/// (row actions, changing months); a swipe that starts mid-screen is left to those.
+/// How much of each side a tab swipe can start in.
+private let startZone: CGFloat = 0.25
+
+/// Sideways swipes that start in the outer quarter of the screen on either side
+/// and move inward. They sit on the window, like the back swipe in Settings, so
+/// they win over the swipes inside the screens (row actions, changing months),
+/// which get the middle half; a drag that's more up or down than sideways is left
+/// alone, so scrolling works anywhere.
 private struct EdgeSwipes: UIViewRepresentable {
-    /// How far in from the edge the finger is, as it moves.
+    /// How far in from where it started the finger is, as it moves.
     let changed: (UIRectEdge, CGFloat) -> Void
     /// Let go (or cancelled): whether that changes tabs.
     let ended: (UIRectEdge, Bool) -> Void
@@ -139,12 +144,14 @@ private struct EdgeSwipes: UIViewRepresentable {
 private final class EdgeSwipeView: UIView, UIGestureRecognizerDelegate {
     var changed: (UIRectEdge, CGFloat) -> Void = { _, _ in }
     var ended: (UIRectEdge, Bool) -> Void = { _, _ in }
-    private lazy var pans: [UIScreenEdgePanGestureRecognizer] = [UIRectEdge.left, .right].map { edge in
-        let pan = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(swiped))
-        pan.edges = edge
+    /// The side the swipe under way started on.
+    private var edge: UIRectEdge = .left
+    private lazy var pan: UIPanGestureRecognizer = {
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(swiped))
+        pan.maximumNumberOfTouches = 1
         pan.delegate = self
         return pan
-    }
+    }()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -154,36 +161,50 @@ private final class EdgeSwipeView: UIView, UIGestureRecognizerDelegate {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     override func willMove(toWindow newWindow: UIWindow?) {
-        pans.forEach { $0.view?.removeGestureRecognizer($0) }
-        pans.forEach { newWindow?.addGestureRecognizer($0) }
+        pan.view?.removeGestureRecognizer(pan)
+        newWindow?.addGestureRecognizer(pan)
     }
 
-    @objc private func swiped(_ pan: UIScreenEdgePanGestureRecognizer) {
+    @objc private func swiped(_ pan: UIPanGestureRecognizer) {
         guard let view = pan.view else { return }
-        let inward: CGFloat = pan.edges == .left ? 1 : -1
+        let inward: CGFloat = edge == .left ? 1 : -1
         let distance = pan.translation(in: view).x * inward
         switch pan.state {
         case .began, .changed:
-            changed(pan.edges, distance)
+            changed(edge, distance)
         case .ended:
-            // Far enough, or quick enough, in from the edge it started at.
-            ended(pan.edges, distance > reach || pan.velocity(in: view).x * inward > 500)
+            // Far enough, or quick enough, in from where it started.
+            ended(edge, distance > reach || pan.velocity(in: view).x * inward > 500)
         case .cancelled, .failed:
-            ended(pan.edges, false)
+            ended(edge, false)
         default:
             break
         }
     }
 
-    // Not while a sheet is up: the tabs are behind it.
+    /// Starts only for a sideways, inward swipe from an outer quarter, and not
+    /// while a sheet is up (the tabs are behind it).
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        window?.rootViewController?.presentedViewController == nil
+        guard let window, window.rootViewController?.presentedViewController == nil else { return false }
+        let moved = pan.translation(in: window)
+        let start = pan.location(in: window).x - moved.x
+        // Clearly more sideways than up or down.
+        guard abs(moved.x) > abs(moved.y) * 1.5 else { return false }
+        let width = window.bounds.width
+        if start < width * startZone && moved.x > 0 {
+            edge = .left
+        } else if start > width * (1 - startZone) && moved.x < 0 {
+            edge = .right
+        } else {
+            return false
+        }
+        return true
     }
 
-    // Scrolling and row swipes wait for an edge swipe to fail first; one that
-    // doesn't start at the edge fails straight away.
+    // Scrolling and row swipes wait for this to decide; it does as soon as the
+    // finger has moved enough to tell sideways from up or down.
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
-        !(other is UIScreenEdgePanGestureRecognizer) && other.view?.window == window
+        other !== pan && other.view?.window == window
     }
 }

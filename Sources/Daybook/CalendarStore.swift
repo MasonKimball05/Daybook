@@ -455,6 +455,32 @@ final class CalendarStore {
         save(reminder)
     }
 
+    /// Overdue tasks, all due today. Without their times: an earlier time today
+    /// would leave them overdue still. Undo puts every date back.
+    func moveToToday(_ tasks: [TaskItem]) {
+        let today = Calendar.current.startOfDay(for: .now)
+        var before: [(id: String, due: Date?, hasTime: Bool)] = []
+        for task in tasks {
+            guard let reminder = store.calendarItem(withIdentifier: task.id) as? EKReminder else { continue }
+            before.append((task.id, task.due, task.dueHasTime))
+            Self.setDue(today, hasTime: false, on: reminder)
+            try? store.save(reminder, commit: false)
+        }
+        guard !before.isEmpty else { return }
+        try? store.commit()
+        Task { await reload() }
+        offerUndo("Moved \(before.count) \(before.count == 1 ? "task" : "tasks") to today") { [weak self] in
+            guard let self else { return }
+            for old in before {
+                guard let reminder = store.calendarItem(withIdentifier: old.id) as? EKReminder else { continue }
+                Self.setDue(old.due, hasTime: old.hasTime, on: reminder)
+                try? store.save(reminder, commit: false)
+            }
+            try? store.commit()
+            Task { await self.reload() }
+        }
+    }
+
     private static func setDue(_ due: Date?, hasTime: Bool, on reminder: EKReminder) {
         // Drop the alert Daybook added for the old time; leave any others alone.
         let oldDue = reminder.dueDateComponents.flatMap { Calendar.current.date(from: $0) }
