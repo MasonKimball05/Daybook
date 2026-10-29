@@ -3,10 +3,12 @@
 CACHE := $(HOME)/Library/Caches/Daybook
 BUILD := $(CACHE)/build
 APP   := $(CACHE)/Daybook.app
-# Sign with my Apple Development certificate when there is one, so macOS sees each
-# rebuild as the same app and keeps the Calendars, Reminders and Mail permissions.
-# (An ad hoc signature changes every build, and macOS would ask again each time.)
-SIGN  := $(or $(shell security find-identity -v -p codesigning | awk '/Apple Development/ {print $$2; exit}'),-)
+# Sign with my Developer ID certificate (it lasts five years), else Apple Development,
+# so macOS sees each rebuild as the same app and keeps the Calendars, Reminders and
+# Mail permissions. (An ad hoc signature changes every build, and macOS would ask
+# again each time.) The hardened runtime goes with Developer ID; the entitlements
+# list what Daybook needs under it.
+SIGN  := $(or $(shell security find-identity -v -p codesigning | awk '/"Developer ID Application/ {print $$2; exit}'),$(shell security find-identity -v -p codesigning | awk '/"Apple Development/ {print $$2; exit}'),-)
 
 .PHONY: test app install icon ipa clean
 
@@ -20,7 +22,7 @@ app:
 	cp "$$(swift build -c release --scratch-path $(BUILD) --show-bin-path)/Daybook" $(APP)/Contents/MacOS/Daybook
 	cp Resources/Info.plist $(APP)/Contents/Info.plist
 	cp Resources/AppIcon.icns $(APP)/Contents/Resources/AppIcon.icns
-	codesign --force --sign $(SIGN) $(APP)
+	codesign --force --sign $(SIGN) --options runtime --entitlements Resources/Daybook.entitlements $(APP)
 
 # Replaces ~/Applications/Daybook.app and opens it.
 install: app
