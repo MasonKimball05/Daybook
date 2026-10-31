@@ -82,6 +82,10 @@ public enum DaybookLink: Equatable, Sendable {
     case completeTask(id: String)
     case show(String)      // "today", "week", "month", "agenda", "tasks", "time"
     case brief
+    /// Daybook, ready to type a task (the iPhone widget's + button).
+    case quickAdd
+
+    public static let quickAddURL = URL(string: "daybook://quick-add")!
 
     public init?(_ url: URL) {
         guard url.scheme == "daybook", let host = url.host() else { return nil }
@@ -98,6 +102,7 @@ public enum DaybookLink: Equatable, Sendable {
         case "complete-task": guard let id = value("id") else { return nil }; self = .completeTask(id: id)
         case "show": self = .show(value("view") ?? "today")
         case "brief": self = .brief
+        case "quick-add": self = .quickAdd
         default: return nil
         }
     }

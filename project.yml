@@ -47,6 +47,10 @@ targets:
         UIBackgroundModes: [fetch]
         # The next event on the lock screen and in the Dynamic Island.
         NSSupportsLiveActivities: true
+        # daybook:// links (see DaybookLink): the widget's + button opens daybook://quick-add.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.masonkimball.Daybook
+            CFBundleURLSchemes: [daybook]
         BGTaskSchedulerPermittedIdentifiers: [com.masonkimball.Daybook.refresh]
     settings:
       base:

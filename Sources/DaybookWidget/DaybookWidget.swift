@@ -292,14 +292,14 @@ struct TodayWidgetView: View {
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            taskList(limit: 4)
+            taskList(limit: 4, adding: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
     private var large: some View {
         VStack(alignment: .leading, spacing: 8) {
-            header
+            headerWithAdd
             if let next = entry.next {
                 eventBlock(next, titleLines: 2)
             }
@@ -332,6 +332,20 @@ struct TodayWidgetView: View {
             .textCase(.uppercase)
     }
 
+    /// The date, and a + that opens Daybook ready to type a task.
+    private var headerWithAdd: some View {
+        HStack {
+            header
+            Spacer(minLength: 4)
+            Link(destination: DaybookLink.quickAddURL) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(.tint)
+                    .accessibilityLabel("Add Task")
+            }
+        }
+    }
+
     private func eventBlock(_ item: AgendaItem, titleLines: Int) -> some View {
         HStack(alignment: .top, spacing: 6) {
             RoundedRectangle(cornerRadius: 2).fill(Color(hex: item.color)).frame(width: 4)
@@ -353,9 +367,19 @@ struct TodayWidgetView: View {
         }
     }
 
-    private func taskList(limit: Int) -> some View {
+    /// `adding` puts a + beside the heading, for a new task.
+    private func taskList(limit: Int, adding: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Tasks").font(.caption.weight(.semibold)).foregroundStyle(.secondary).textCase(.uppercase)
+            HStack {
+                Text("Tasks").font(.caption.weight(.semibold)).foregroundStyle(.secondary).textCase(.uppercase)
+                if adding {
+                    Spacer(minLength: 4)
+                    Link(destination: DaybookLink.quickAddURL) {
+                        Image(systemName: "plus.circle.fill").font(.title3).foregroundStyle(.tint)
+                            .accessibilityLabel("Add Task")
+                    }
+                }
+            }
             if entry.tasks.isEmpty {
                 Text("All clear").font(.caption).foregroundStyle(.secondary)
             }

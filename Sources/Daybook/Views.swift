@@ -284,9 +284,9 @@ struct DayListView: View {
     static func slots(_ day: Agenda.Day, tasks: [TaskItem] = [], shortestFree: TimeInterval = 0, now: Date? = nil) -> [Slot] {
         let isPast = Calendar.current.startOfDay(for: day.date) < Calendar.current.startOfDay(for: .now)
         let free = isPast ? [] : FreeTime.blocks(on: day.date, events: day.timed).filter { $0.duration >= shortestFree }
-        let line = now.map { [Slot.now($0)] } ?? []
-        return (day.timed.map(Slot.event) + free.map(Slot.free) + tasks.map(Slot.task) + line)
-            .sorted { ($0.start, $0.isNow ? 1 : 0) < ($1.start, $1.isNow ? 1 : 0) }
+        var slots = (day.timed.map(Slot.event) + free.map(Slot.free) + tasks.map(Slot.task)).sorted { $0.start < $1.start }
+        if let now { slots.insert(.now(now), at: QuickDates.nowPosition(starts: slots.map(\.start), now: now)) }
+        return slots
     }
 
     static func heading(_ date: Date) -> String {
@@ -295,10 +295,6 @@ struct DayListView: View {
         if Calendar.current.isDateInTomorrow(date) { return "Tomorrow \u{00B7} " + text }
         return text
     }
-}
-
-extension DayListView.Slot {
-    var isNow: Bool { if case .now = self { true } else { false } }
 }
 
 /// A red line at the current time, like Calendar's.
@@ -1591,13 +1587,7 @@ struct TaskRow: View {
     }
 
     /// Tomorrow, at the same time of day when the task has one.
-    private var tomorrow: Date {
-        let calendar = Calendar.current
-        let day = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: .now))!
-        guard task.dueHasTime, let due = task.due else { return day }
-        let time = calendar.dateComponents([.hour, .minute], from: due)
-        return calendar.date(bySettingHour: time.hour ?? 9, minute: time.minute ?? 0, second: 0, of: day) ?? day
-    }
+    private var tomorrow: Date { QuickDates.tomorrow(keeping: task.due, hasTime: task.dueHasTime, now: .now) }
 }
 
 /// Everything about a task, editable: notes, link, list, date, repeat, priority.
@@ -1994,15 +1984,10 @@ struct QuickAddField: View {
     #if os(iOS)
     private var dateChips: some View {
         let calendar = Calendar.current
-        let today = calendar.startOfDay(for: .now)
-        let day = { (n: Int) in calendar.date(byAdding: .day, value: n, to: today)! }
-        // Saturday (today, on a Saturday), and the Monday after this week.
-        let saturday = calendar.nextDate(after: day(-1), matching: DateComponents(weekday: 7), matchingPolicy: .nextTime) ?? day(1)
-        let monday = calendar.nextDate(after: today, matching: DateComponents(weekday: 2), matchingPolicy: .nextTime) ?? day(7)
-        let choices = [("Today", today), ("Tomorrow", day(1)), ("This Weekend", saturday), ("Next Week", monday)]
+        let choices = QuickDates.choices(now: .now, calendar: calendar)
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(choices, id: \.0) { name, date in
+                ForEach(choices, id: \.name) { name, date in
                     let chosen = picked.map { calendar.isDate($0.due, inSameDayAs: date) && !$0.hasTime } == true
                     Button(name) { picked = chosen ? nil : (date, false) }
                         .buttonStyle(.bordered)

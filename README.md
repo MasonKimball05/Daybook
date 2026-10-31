@@ -30,7 +30,7 @@ Swift 6 and SwiftUI, no dependencies.
 
 ## Also
 
-- **Widgets (iPhone):** the next event with a countdown and today's tasks, checkable from the home screen. Lock screen sizes too.
+- **Widgets (iPhone):** the next event with a countdown and today's tasks, checkable from the home screen; the + on the medium and large ones opens Daybook ready to type a task (`daybook://quick-add`). Lock screen sizes too.
 - **Menu bar (Mac):** the next event and time until it; click for today's agenda. ⌃⌥Space adds a task from any app (Tab switches to an event). "Open at Login" is in the panel.
 - **Events:** add from the quick-add field (click its icon to switch to events), New Event (⌘N, or + on iPhone), and Edit or Delete from an event's details. Subscribed calendars are read-only.
 - **Free time:** open stretches (8 AM to 10 PM, 30 minutes or more) show between events. Tap one, or drag a task onto it, to block the time.

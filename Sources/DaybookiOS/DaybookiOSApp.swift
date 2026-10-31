@@ -84,6 +84,14 @@ struct DaybookiOSApp: App {
                         query = title
                         searching = true
                     }
+                    // daybook:// links: the widget's + button, or a view to open.
+                    .onOpenURL { url in
+                        switch DaybookLink(url) {
+                        case .quickAdd: requests.quickAdd += 1
+                        case .show(let view): if let tab = Screen.allCases.first(where: { $0.title.lowercased() == view.lowercased() }) { screen = tab }
+                        default: break
+                        }
+                    }
                     // A Focus with a Daybook filter turned on or off.
                     .onReceive(NotificationCenter.default.publisher(for: .focusFilterChanged)) { _ in
                         Task { await store.reload() }

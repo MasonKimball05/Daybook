@@ -848,6 +848,7 @@ func event(_ title: String, _ start: Date, _ end: Date, allDay: Bool = false, ca
         #expect(DaybookLink(URL(string: "daybook://add-task?text=submit%20report%20friday")!) == .addTask("submit report friday"))
         #expect(DaybookLink(URL(string: "daybook://complete-task?id=XYZ")!) == .completeTask(id: "XYZ"))
         #expect(DaybookLink(URL(string: "daybook://show?view=time")!) == .show("time"))
+        #expect(DaybookLink(DaybookLink.quickAddURL) == .quickAdd)
         let log = DaybookLink(URL(string: "daybook://log?title=Study&start=2026-10-07T03:00:00Z&end=2026-10-07T04:00:00Z")!)
         #expect(log == .log(title: "Study", start: Date(timeIntervalSince1970: 1_791_342_000), end: Date(timeIntervalSince1970: 1_791_345_600)))
         #expect(DaybookLink(URL(string: "daybook://log?title=Study&start=2026-10-07T04:00:00Z&end=2026-10-07T03:00:00Z")!) == nil)
@@ -876,5 +877,33 @@ func event(_ title: String, _ start: Date, _ end: Date, allDay: Bool = false, ca
             #expect(DaybookMarker(marker.url) == marker)
             #expect(DaybookMarker(url: nil, notes: marker.url.absoluteString + "\n\n[]") == marker)
         }
+    }
+}
+
+@Suite struct QuickDatesTests {
+    @Test func chipsOnATuesday() {
+        let days = QuickDates.choices(now: now, calendar: cal)
+        #expect(days.map(\.name) == ["Today", "Tomorrow", "This Weekend", "Next Week"])
+        #expect(days.map(\.day) == [at(10, 6), at(10, 7), at(10, 10), at(10, 12)])
+    }
+
+    @Test func weekendAndNextWeekAtTheEdges() {
+        // On a Saturday, this weekend is today; on a Monday, next week is the Monday after.
+        #expect(QuickDates.choices(now: at(10, 10, 14), calendar: cal)[2].day == at(10, 10))
+        #expect(QuickDates.choices(now: at(10, 12, 8), calendar: cal)[3].day == at(10, 19))
+    }
+
+    @Test func tomorrowKeepsTheTime() {
+        #expect(QuickDates.tomorrow(keeping: at(10, 3, 15, 30), hasTime: true, now: now, calendar: cal) == at(10, 7, 15, 30))
+        #expect(QuickDates.tomorrow(keeping: at(10, 3, 15, 30), hasTime: false, now: now, calendar: cal) == at(10, 7))
+        #expect(QuickDates.tomorrow(keeping: nil, hasTime: false, now: now, calendar: cal) == at(10, 7))
+    }
+
+    @Test func nowLineGoesAfterWhatHasStarted() {
+        let starts = [at(10, 6, 8), at(10, 6, 9), at(10, 6, 9), at(10, 6, 13)]
+        #expect(QuickDates.nowPosition(starts: starts, now: now) == 3)       // 9:00 counts as started
+        #expect(QuickDates.nowPosition(starts: starts, now: at(10, 6, 7)) == 0)
+        #expect(QuickDates.nowPosition(starts: starts, now: at(10, 6, 20)) == 4)
+        #expect(QuickDates.nowPosition(starts: [], now: now) == 0)
     }
 }

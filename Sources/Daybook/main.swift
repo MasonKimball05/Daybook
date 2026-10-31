@@ -158,6 +158,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             show(view)
         case .brief:
             show("brief")
+        case .quickAdd:
+            QuickAddPanel.show(store: store)
         }
     }
 
